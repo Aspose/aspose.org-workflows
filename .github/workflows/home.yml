@@ -27,9 +27,9 @@ jobs:
     - name: Install postcss-cli
       run:  npm install -D --save postcss-cli
     - name: Build Home
-      run: hugo --config "configs/common.toml", "configs/home.toml" -c "content/home" -b "https://products.aspose.org/" --cleanDestinationDir --minify
+      run: --config "./configs/common.toml","./configs/home.toml" -c "content/home" -b "https://products.aspose.org/" --cleanDestinationDir --minify
     - name: Deploy Home to S3
-      run: hugo deploy --config "configs/home.toml" --maxDeletes=-1 --target "production" --force
+      run: hugo deploy --config "configs/home.toml" --maxDeletes=-1 --target --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
