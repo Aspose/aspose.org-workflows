@@ -1,4 +1,4 @@
-name: Home
+name: barcode
 on:
   workflow_dispatch:
     inputs:
