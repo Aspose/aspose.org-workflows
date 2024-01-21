@@ -1,0 +1,35 @@
+name: tex
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Build environment'
+        type: environment
+        default: staging
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout theme repo
+      uses: actions/checkout@main
+      with:
+          repository: Aspose/products.aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0 
+    - name: Setup Hugo
+      uses: peaceiris/actions-hugo@v2
+      with:
+          hugo-version: '0.110.0'
+          extended: true
+    - name: Install autoprefixer
+      run:  npm install -D --save autoprefixer
+    - name: Install postcss-cli
+      run:  npm install -D --save postcss-cli
+    - name: Build Aspose.TeX
+      run: hugo --config "./configs/common.toml","./configs/tex.toml" -c "content/tex" -b "https://products.aspose.org/tex" --cleanDestinationDir --minify
+    - name: Deploy Aspose.TeX to S3
+      run: hugo deploy --config "configs/tex.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
