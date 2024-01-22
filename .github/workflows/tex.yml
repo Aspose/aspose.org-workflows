@@ -1,4 +1,4 @@
-name: tex
+name: Aspose.TeX
 on:
   workflow_dispatch:
     inputs:

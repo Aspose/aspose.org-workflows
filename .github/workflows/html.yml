@@ -1,4 +1,4 @@
-name: html
+name: Aspose.HTML
 on:
   workflow_dispatch:
     inputs:

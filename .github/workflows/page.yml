@@ -1,4 +1,4 @@
-name: page
+name: Aspose.Page
 on:
   workflow_dispatch:
     inputs:

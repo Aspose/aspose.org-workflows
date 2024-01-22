@@ -1,4 +1,4 @@
-name: imaging
+name: Aspose.Imaging
 on:
   workflow_dispatch:
     inputs:

@@ -1,4 +1,4 @@
-name: tasks
+name: Aspose.Tasks
 on:
   workflow_dispatch:
     inputs:

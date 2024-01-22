@@ -1,4 +1,4 @@
-name: pdf
+name: Aspose.PDF
 on:
   workflow_dispatch:
     inputs:
