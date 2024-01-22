@@ -22,12 +22,8 @@ jobs:
       with:
           hugo-version: '0.110.0'
           extended: true
-    - name: Install autoprefixer
-      run:  npm install -D --save autoprefixer
-    - name: Install postcss-cli
-      run:  npm install -D --save postcss-cli
     - name: Build Aspose.PDF
-      run: hugo --config "./configs/common.toml","./configs/pdf.toml" -c "content/pdf" -b "https://products.aspose.org/pdf" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/pdf.toml" -b "https://products.aspose.org/pdf" --cleanDestinationDir --minify
     - name: Deploy Aspose.PDF to S3
       run: hugo deploy --config "configs/pdf.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
