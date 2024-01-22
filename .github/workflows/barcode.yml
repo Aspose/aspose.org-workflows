@@ -1,4 +1,4 @@
-name: barcode
+name: Aspose.BarCode
 on:
   workflow_dispatch:
     inputs:
