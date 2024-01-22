@@ -1,4 +1,4 @@
-name: tex
+name: tasks
 on:
   workflow_dispatch:
     inputs:
@@ -22,10 +22,10 @@ jobs:
       with:
           hugo-version: '0.110.0'
           extended: true
-    - name: Build Aspose.TeX
-      run: hugo --config "./configs/common.toml","./configs/tex.toml" -b "https://products.aspose.org/tex" --cleanDestinationDir --minify
-    - name: Deploy Aspose.TeX to S3
-      run: hugo deploy --config "configs/tex.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+    - name: Build Aspose.Tasks
+      run: hugo --config "./configs/common.toml","./configs/tasks.toml" -c "content/tasks" -b "https://products.aspose.org/tasks" --cleanDestinationDir --minify
+    - name: Deploy Aspose.Tasks to S3
+      run: hugo deploy --config "configs/tasks.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
