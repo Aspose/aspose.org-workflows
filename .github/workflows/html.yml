@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: '0.110.0'
+          hugo-version: 'latest'
           extended: true
     - name: Build Aspose.HTML
       run: hugo --config "./configs/common.toml","./configs/html.toml" -c "content/html" -b "https://products.aspose.org/html" --cleanDestinationDir --minify
