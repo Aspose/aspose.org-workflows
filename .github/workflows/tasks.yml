@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Aspose.Tasks
-      run: hugo --config "./configs/common.toml","./configs/tasks.toml" -c "content/tasks" -b "https://products.aspose.org/tasks" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/tasks.toml" -c "content/tasks" -b "https://products.aspose.org/tasks" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.Tasks to S3
       run: hugo deploy --config "configs/tasks.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

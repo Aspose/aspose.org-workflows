@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Aspose.TeX
-      run: hugo --config "./configs/common.toml","./configs/tex.toml" -b "https://products.aspose.org/tex" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/tex.toml" -b "https://products.aspose.org/tex" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.TeX to S3
       run: hugo deploy --config "configs/tex.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

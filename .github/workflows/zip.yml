@@ -23,7 +23,7 @@ jobs:
           hugo-version: '0.120.0'
           extended: true
     - name: Build Aspose.ZIP
-      run: hugo --config "./configs/common.toml","./configs/zip.toml" -b "https://products.aspose.org/zip" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/zip.toml" -b "https://products.aspose.org/zip" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.ZIP to S3
       run: hugo deploy --config "configs/zip.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

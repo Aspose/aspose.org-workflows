@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Home
-      run: hugo --config "./configs/common.toml","./configs/home.toml" -b "https://products.aspose.org/" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/home.toml" -b "https://products.aspose.org/" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Home to S3
       run: hugo deploy --config "configs/home.toml" --maxDeletes 0 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Aspose.HTML
-      run: hugo --config "./configs/common.toml","./configs/html.toml" -c "content/html" -b "https://products.aspose.org/html" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/html.toml" -c "content/html" -b "https://products.aspose.org/html" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.HTML to S3
       run: hugo deploy --config "configs/html.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

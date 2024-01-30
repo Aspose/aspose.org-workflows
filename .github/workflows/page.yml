@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Aspose.Page
-      run: hugo --config "./configs/common.toml","./configs/page.toml" -b "https://products.aspose.org/page" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/page.toml" -b "https://products.aspose.org/page" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.Page to S3
       run: hugo deploy --config "configs/page.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

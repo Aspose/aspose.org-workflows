@@ -22,7 +22,7 @@ jobs:
       with:
           hugo-version: 'latest'
     - name: Build Aspose.BarCode
-      run: hugo --config "./configs/common.toml","./configs/barcode.toml" -c "content/barcode" -b "https://products.aspose.org/barcode" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/barcode.toml" -c "content/barcode" -b "https://products.aspose.org/barcode" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.BarCode to S3
       run: hugo deploy --config "configs/barcode.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:

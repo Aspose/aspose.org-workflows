@@ -23,7 +23,7 @@ jobs:
           hugo-version: 'latest'
           extended: true
     - name: Build Aspose.CAD
-      run: hugo --config "./configs/common.toml","./configs/cad.toml" -b "https://products.aspose.org/cad" --cleanDestinationDir --minify
+      run: hugo --config "./configs/common.toml","./configs/cad.toml" -b "https://products.aspose.org/cad" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.CAD to S3
       run: hugo deploy --config "configs/cad.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
