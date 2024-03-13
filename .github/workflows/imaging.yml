@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout theme repo
-      uses: actions/checkout@main
+      uses: actions/checkout@IMAGINGNET-7005
       with:
           repository: Aspose/products.aspose.org
           token: ${{ secrets.REPO_TOKEN }}
