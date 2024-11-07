@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
     - name: Build Aspose.BarCode
       run: hugo --config "./configs/common.toml","./configs/barcode.toml" -c "content/barcode" -b "https://products.aspose.org/barcode" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.BarCode to S3

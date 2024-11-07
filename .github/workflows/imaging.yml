@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.Imaging
       run: hugo --config "./configs/common.toml","./configs/imaging.toml" -c "content/imaging" -b "https://products.aspose.org/imaging" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
