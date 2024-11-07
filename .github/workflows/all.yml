@@ -2,9 +2,6 @@ name: All
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main  # Adjust based on your main branch
 
 jobs:
   trigger_siblings:
