@@ -12,17 +12,31 @@ jobs:
 
       - name: Get sibling workflows
         run: |
-          workflows=$(find .github/workflows -type f -name '*.yml')
+          # Exclude the current workflow file (All.yml) and list other workflows only
+          workflows=$(find .github/workflows -type f -name '*.yml' ! -name 'All.yml')
           echo "Workflows found:"
           echo "$workflows"
           echo "$workflows" > workflows.txt
         shell: bash
 
+      - name: Install GitHub CLI
+        run: |
+          # Install GitHub CLI to use gh commands
+          sudo apt-get update
+          sudo apt-get install -y gh
+
       - name: Run sibling workflows with production environment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          while read workflow; do
-            echo "Triggering $workflow..."
-            gh workflow run "$(basename "$workflow")" --field environment="production"
+          while read -r workflow; do
+            workflow_name=$(basename "$workflow")
+            echo "Attempting to trigger $workflow_name with production environment..."
+            
+            # Try to trigger each workflow and catch errors if they occur
+            if gh workflow run "$workflow_name" --field environment="production"; then
+              echo "Successfully triggered $workflow_name"
+            else
+              echo "Failed to trigger $workflow_name. Skipping..."
+            fi
           done < workflows.txt
