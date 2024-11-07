@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.CAD
       run: hugo --config "./configs/common.toml","./configs/cad.toml" -b "https://products.aspose.org/cad" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo

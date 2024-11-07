@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.PSD
       run: hugo --config "./configs/common.toml","./configs/psd.toml" -b "https://products.aspose.org/psd" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo

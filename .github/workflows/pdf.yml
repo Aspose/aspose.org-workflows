@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.PDF
       run: hugo --config "./configs/common.toml","./configs/pdf.toml" -b "https://products.aspose.org/pdf" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo

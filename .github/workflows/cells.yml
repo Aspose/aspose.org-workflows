@@ -20,7 +20,7 @@ jobs:
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
-          hugo-version: 'latest'
+          hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.Cells
       run: hugo --config "./configs/common.toml","./configs/cells.toml" -b "https://products.aspose.org/cells" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
