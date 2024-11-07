@@ -1,0 +1,31 @@
+name: All
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main  # Adjust based on your main branch
+
+jobs:
+  trigger_siblings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Get sibling workflows
+        run: |
+          workflows=$(find .github/workflows -type f -name '*.yml')
+          echo "Workflows found:"
+          echo "$workflows"
+          echo "$workflows" > workflows.txt
+        shell: bash
+
+      - name: Run sibling workflows with production environment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          while read workflow; do
+            echo "Triggering $workflow..."
+            gh workflow run "$(basename "$workflow")" --field environment="production"
+          done < workflows.txt
