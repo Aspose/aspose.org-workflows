@@ -20,7 +20,7 @@ jobs:
     - name: Build www.aspose.org
       run: hugo --config "./configs/common.toml","./configs/www.toml" -b "https://www.aspose.org" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy www.aspose.org to S3
-      run: hugo deploy --config "configs/cad.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
+      run: hugo deploy --config "configs/www.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
