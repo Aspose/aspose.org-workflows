@@ -1,4 +1,4 @@
-name: Aspose.Imaging
+name: products.aspose.org-html
 on:
   workflow_dispatch:
     inputs:
@@ -22,10 +22,10 @@ jobs:
       with:
           hugo-version: '0.136.0'
           extended: true
-    - name: Build Aspose.Imaging
-      run: hugo --config "./configs/common.toml","./configs/imaging.toml" -c "content/imaging" -b "https://products.aspose.org/imaging" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.Imaging to S3
-      run: hugo deploy --config "configs/imaging.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+    - name: Build Aspose.HTML
+      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/html.toml" -c "content/html" -b "https://products.aspose.org/html" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.HTML to S3
+      run: hugo deploy --config "configs/products.aspose.org/html.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}

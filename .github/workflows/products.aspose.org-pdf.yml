@@ -1,4 +1,4 @@
-name: Aspose.Cells
+name: products.aspose.org-pdf
 on:
   workflow_dispatch:
     inputs:
@@ -22,10 +22,10 @@ jobs:
       with:
           hugo-version: '0.136.0'
           extended: true
-    - name: Build Aspose.Cells
-      run: hugo --config "./configs/common.toml","./configs/cells.toml" -b "https://products.aspose.org/cells" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.Cells to S3
-      run: hugo deploy --config "configs/cells.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+    - name: Build Aspose.PDF
+      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/pdf.toml" -b "https://products.aspose.org/pdf" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.PDF to S3
+      run: hugo deploy --config "configs/products.aspose.org/pdf.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}

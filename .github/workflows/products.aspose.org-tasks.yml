@@ -1,4 +1,4 @@
-name: Aspose.ZIP
+name: products.aspose.org-tasks
 on:
   workflow_dispatch:
     inputs:
@@ -22,10 +22,10 @@ jobs:
       with:
           hugo-version: '0.136.0'
           extended: true
-    - name: Build Aspose.ZIP
-      run: hugo --config "./configs/common.toml","./configs/zip.toml" -b "https://products.aspose.org/zip" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.ZIP to S3
-      run: hugo deploy --config "configs/zip.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+    - name: Build Aspose.Tasks
+      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/tasks.toml" -c "content/tasks" -b "https://products.aspose.org/tasks" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.Tasks to S3
+      run: hugo deploy --config "configs/products.aspose.org/tasks.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}

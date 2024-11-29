@@ -1,4 +1,4 @@
-name: Aspose.BarCode
+name: products.aspose.org-ocr
 on:
   workflow_dispatch:
     inputs:
@@ -21,10 +21,11 @@ jobs:
       uses: peaceiris/actions-hugo@v2
       with:
           hugo-version: '0.136.0'
-    - name: Build Aspose.BarCode
-      run: hugo --config "./configs/common.toml","./configs/barcode.toml" -c "content/barcode" -b "https://products.aspose.org/barcode" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.BarCode to S3
-      run: hugo deploy --config "configs/barcode.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+          extended: true
+    - name: Build Aspose.OCR
+      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/ocr.toml" -b "https://products.aspose.org/ocr" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.OCR to S3
+      run: hugo deploy --config "configs/products.aspose.org/ocr.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}

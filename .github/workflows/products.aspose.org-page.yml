@@ -1,4 +1,4 @@
-name: Aspose.Page
+name: products.aspose.org-page
 on:
   workflow_dispatch:
     inputs:
@@ -23,9 +23,9 @@ jobs:
           hugo-version: '0.136.0'
           extended: true
     - name: Build Aspose.Page
-      run: hugo --config "./configs/common.toml","./configs/page.toml" -b "https://products.aspose.org/page" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/page.toml" -b "https://products.aspose.org/page" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.Page to S3
-      run: hugo deploy --config "configs/page.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      run: hugo deploy --config "configs/products.aspose.org/page.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
