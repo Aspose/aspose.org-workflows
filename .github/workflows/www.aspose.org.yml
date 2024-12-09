@@ -9,7 +9,7 @@ jobs:
     - name: Checkout theme repo
       uses: actions/checkout@main
       with:
-          repository: Aspose/products.aspose.org
+          repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0 
     - name: Setup Hugo
