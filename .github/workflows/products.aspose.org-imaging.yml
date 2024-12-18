@@ -21,10 +21,17 @@ jobs:
       uses: peaceiris/actions-hugo@v2
       with:
           hugo-version: '0.136.0'
-          extended: true
-    - name: Build Aspose.Imaging
-      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/imaging.toml" -c "content/imaging" -b "https://products.aspose.org/imaging" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.Imaging to S3
+    - name: Determine Base URL
+      id: base-url
+      run: |
+        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+          echo "::set-output name=url::https://products.aspose.org/imaging"
+        else
+          echo "::set-output name=url::https://products-qa.aspose.org/imaging"
+        fi
+    - name: Build Aspose.imaging
+      run: hugo --config "./configs/products.aspose.org/imaging.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.imaging to S3
       run: hugo deploy --config "configs/products.aspose.org/imaging.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
