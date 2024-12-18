@@ -21,10 +21,17 @@ jobs:
       uses: peaceiris/actions-hugo@v2
       with:
           hugo-version: '0.136.0'
-          extended: true
-    - name: Build Aspose.Cells
-      run: hugo --config "./configs/common.toml","./configs/products.aspose.org/cells.toml" -b "https://products.aspose.org/cells" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.Cells to S3
+    - name: Determine Base URL
+      id: base-url
+      run: |
+        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+          echo "::set-output name=url::https://products.aspose.org/cells"
+        else
+          echo "::set-output name=url::https://products-qa.aspose.org/cells"
+        fi
+    - name: Build Aspose.cells
+      run: hugo --config "./configs/products.aspose.org/cells.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.cells to S3
       run: hugo deploy --config "configs/products.aspose.org/cells.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
