@@ -1,4 +1,4 @@
-name: products.aspose.org-home
+name: reference.aspose.org-home
 on:
   workflow_dispatch:
     inputs:
@@ -25,14 +25,14 @@ jobs:
       id: base-url
       run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "::set-output name=url::https://products.aspose.org"
+          echo "::set-output name=url::https://reference.aspose.org"
         else
-          echo "::set-output name=url::https://products-qa.aspose.org"
+          echo "::set-output name=url::https://reference-qa.aspose.org"
         fi
     - name: Build Aspose.home
-      run: hugo --config "./configs/products.aspose.org/home.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+      run: hugo --config "./configs/reference.aspose.org/home.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy Aspose.home to S3
-      run: hugo deploy --config "configs/products.aspose.org/home.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      run: hugo deploy --config "configs/reference.aspose.org/home.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
