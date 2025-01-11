@@ -46,8 +46,9 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run JSON merge script 
-        run: python scripts/merge_search_data.py https://docs.aspose.org
+      # Execute the merge script from the 'scripts' folder with dynamic base URL
+      - name: Run JSON merge script
+        run: python scripts/merge_search_data.py "${{ env.url }}"
 
       - name: Deploy docs.aspose.org to S3
         run: hugo deploy --config "configs/docs.aspose.org/home.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
