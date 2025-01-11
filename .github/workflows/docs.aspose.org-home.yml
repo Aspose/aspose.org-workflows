@@ -7,33 +7,50 @@ on:
         type: environment
         default: staging
         required: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout theme repo
-      uses: actions/checkout@main
-      with:
+      - name: Checkout theme repo
+        uses: actions/checkout@main
+        with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0 
-    - name: Setup Hugo
-      uses: peaceiris/actions-hugo@v2
-      with:
-          hugo-version: '0.136.0'
-          extended: true
-    - name: Determine Base URL
-      id: base-url
-      run: |
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "::set-output name=url::https://docs.aspose.org"
-        else
-          echo "::set-output name=url::https://docs-qa.aspose.org"
-        fi
-    - name: Build docs.aspose.org
-      run: hugo --config "./configs/docs.aspose.org/home.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy docs.aspose.org to S3
-      run: hugo deploy --config "configs/docs.aspose.org/home.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+            hugo-version: '0.136.0'
+            extended: true
+
+      - name: Determine Base URL
+        id: base-url
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            echo "url=https://docs.aspose.org" >> $GITHUB_ENV
+          else
+            echo "url=https://docs-qa.aspose.org" >> $GITHUB_ENV
+          fi
+
+      - name: Build docs.aspose.org with Hugo
+        run: hugo --config "./configs/docs.aspose.org/home.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+
+      # Adding Python setup and merging script step
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run JSON merge script 
+        run: python scripts/merge_search_data.py https://docs.aspose.org
+
+      - name: Deploy docs.aspose.org to S3
+        run: hugo deploy --config "configs/docs.aspose.org/home.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
