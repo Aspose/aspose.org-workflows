@@ -25,13 +25,13 @@ jobs:
       id: base-url
       run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "::set-output name=url::https://kb.aspose.org/html"
+          echo "url=https://kb.aspose.org/html" >> $GITHUB_ENV
         else
-          echo "::set-output name=url::https://kb-qa.aspose.org/html"
+          echo "url=https://kb-qa.aspose.org/html" >> $GITHUB_ENV
         fi
-    - name: Build Aspose.html
-      run: hugo --config "./configs/kb.aspose.org/html.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-    - name: Deploy Aspose.html to S3
+    - name: Build Aspose.HTML
+      run: hugo --config "./configs/kb.aspose.org/html.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy Aspose.HTML to S3
       run: hugo deploy --config "configs/kb.aspose.org/html.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
