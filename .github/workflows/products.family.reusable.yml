@@ -130,7 +130,7 @@ jobs:
             cat >> "$config_path" <<'EOF'
 
           [[deployment.matchers]]
-          pattern = "^.+\\.(xml)$"
+          pattern = '^.+\.(xml)$'
           contentType = "application/xml"
           gzip = true
           force = true
@@ -140,17 +140,17 @@ jobs:
           cat >> "$config_path" <<EOF
 
           [[deployment.matchers]]
-          pattern = "^.+\\.(js|css|svg)$"
+          pattern = '^.+\.(js|css|svg)$'
           cacheControl = "max-age=${{ steps.settings.outputs.cache_max_age }}, no-transform, public"
           gzip = true
 
           [[deployment.matchers]]
-          pattern = "^.+\\.(png|jpg|ico)$"
+          pattern = '^.+\.(png|jpg|ico)$'
           cacheControl = "max-age=${{ steps.settings.outputs.cache_max_age }}, no-transform, public"
           gzip = false
 
           [[deployment.matchers]]
-          pattern = "^.+\\.(html|json)$"
+          pattern = '^.+\.(html|json)$'
           gzip = true
           EOF
 
