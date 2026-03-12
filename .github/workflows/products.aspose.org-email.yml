@@ -1,4 +1,4 @@
-name: products.aspose.org-imaging
+name: products.aspose.org-email
 on:
   workflow_dispatch:
     inputs:
@@ -12,8 +12,8 @@ jobs:
     uses: ./.github/workflows/products.family.reusable.yml
     with:
       environment: ${{ github.event.inputs.environment }}
-      display_name: Aspose.Imaging
-      family_slug: imaging
-      content_dir: content/products.aspose.org/en/imaging
+      display_name: Aspose.Email
+      family_slug: email
+      content_dir: content/products.aspose.org/en/email
       output_mode: family
     secrets: inherit

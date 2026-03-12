@@ -1,4 +1,4 @@
-name: products.aspose.org-imaging
+name: products.aspose.org-finance
 on:
   workflow_dispatch:
     inputs:
@@ -12,8 +12,8 @@ jobs:
     uses: ./.github/workflows/products.family.reusable.yml
     with:
       environment: ${{ github.event.inputs.environment }}
-      display_name: Aspose.Imaging
-      family_slug: imaging
-      content_dir: content/products.aspose.org/en/imaging
+      display_name: Aspose.Finance
+      family_slug: finance
+      content_dir: content/products.aspose.org/en/finance
       output_mode: family
     secrets: inherit
