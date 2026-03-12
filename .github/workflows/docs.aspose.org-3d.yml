@@ -1,0 +1,26 @@
+name: docs.aspose.org-3d
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Build environment
+        type: environment
+        default: staging
+        required: true
+jobs:
+  deploy:
+    uses: ./.github/workflows/products.family.reusable.yml
+    with:
+      environment: ${{ github.event.inputs.environment }}
+      display_name: docs.aspose.org 3D
+      family_slug: 3d
+      content_dir: content/docs.aspose.org/3d/en
+      theme: docs
+      staging_host: docs-qa.aspose.org
+      production_host: docs.aspose.org
+      staging_deploy_url: s3://docs-qa.aspose.org/?prefix=3d/&region=us-west-2
+      production_deploy_url: s3://docs.aspose.org/?prefix=3d/&region=us-west-2
+      staging_distribution_id: E1GXIZ6ANHACFK
+      production_distribution_id: E2LY67DCDQM49R
+      output_mode: family
+    secrets: inherit

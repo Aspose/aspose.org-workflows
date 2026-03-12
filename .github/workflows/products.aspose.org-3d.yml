@@ -14,6 +14,13 @@ jobs:
       environment: ${{ github.event.inputs.environment }}
       display_name: Aspose.3D
       family_slug: 3d
-      content_dir: content/products.aspose.org/en/3d
+      content_dir: content/products.aspose.org/3d/en
+      theme: products
+      staging_host: products-qa.aspose.org
+      production_host: products.aspose.org
+      staging_deploy_url: s3://products-qa.aspose.org/?prefix=3d/&region=us-west-2
+      production_deploy_url: s3://products.aspose.org/?prefix=3d/&region=us-west-2
+      staging_distribution_id: E8DUFGQ3MLGGR
+      production_distribution_id: E1WTAPBGIKFKJJ
       output_mode: family
     secrets: inherit

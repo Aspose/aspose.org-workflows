@@ -14,6 +14,13 @@ jobs:
       environment: ${{ github.event.inputs.environment }}
       display_name: Aspose.Slides
       family_slug: slides
-      content_dir: content/products.aspose.org/en/slides
+      content_dir: content/products.aspose.org/slides/en
+      theme: products
+      staging_host: products-qa.aspose.org
+      production_host: products.aspose.org
+      staging_deploy_url: s3://products-qa.aspose.org/?prefix=slides/&region=us-west-2
+      production_deploy_url: s3://products.aspose.org/?prefix=slides/&region=us-west-2
+      staging_distribution_id: E8DUFGQ3MLGGR
+      production_distribution_id: E1WTAPBGIKFKJJ
       output_mode: family
     secrets: inherit
