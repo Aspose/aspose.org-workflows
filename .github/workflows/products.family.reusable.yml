@@ -1,4 +1,4 @@
-name: products.family.reusable
+name: site.family.reusable
 
 on:
   workflow_call:
@@ -16,10 +16,35 @@ on:
       content_dir:
         required: true
         type: string
+      theme:
+        required: true
+        type: string
+      staging_host:
+        required: true
+        type: string
+      production_host:
+        required: true
+        type: string
+      staging_deploy_url:
+        required: true
+        type: string
+      production_deploy_url:
+        required: true
+        type: string
+      staging_distribution_id:
+        required: true
+        type: string
+      production_distribution_id:
+        required: true
+        type: string
       output_mode:
         required: false
         type: string
         default: family
+      copy_root_only:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -48,33 +73,51 @@ jobs:
           environment="${{ inputs.environment }}"
 
           if [[ "$environment" == "production" ]]; then
-            host="products.aspose.org"
+            host="${{ inputs.production_host }}"
+            deploy_url="${{ inputs.production_deploy_url }}"
+            distribution_id="${{ inputs.production_distribution_id }}"
           else
-            host="products-qa.aspose.org"
+            host="${{ inputs.staging_host }}"
+            deploy_url="${{ inputs.staging_deploy_url }}"
+            distribution_id="${{ inputs.staging_distribution_id }}"
           fi
 
           if [[ -n "$family" ]]; then
             echo "base_url=https://$host/$family" >> "$GITHUB_OUTPUT"
-            echo "staging_url=s3://products-qa.aspose.org/?prefix=$family/&region=us-west-2" >> "$GITHUB_OUTPUT"
-            echo "production_url=s3://products.aspose.org/?prefix=$family/&region=us-west-2" >> "$GITHUB_OUTPUT"
             echo "cache_max_age=22880000" >> "$GITHUB_OUTPUT"
             echo "deploy_extra_args=--maxDeletes=-1" >> "$GITHUB_OUTPUT"
             echo "slug=$family" >> "$GITHUB_OUTPUT"
           else
             echo "base_url=https://$host" >> "$GITHUB_OUTPUT"
-            echo "staging_url=s3://products-qa.aspose.org/?region=us-west-2" >> "$GITHUB_OUTPUT"
-            echo "production_url=s3://products.aspose.org/?region=us-west-2" >> "$GITHUB_OUTPUT"
             echo "cache_max_age=2592000" >> "$GITHUB_OUTPUT"
             echo "deploy_extra_args=" >> "$GITHUB_OUTPUT"
             echo "slug=home" >> "$GITHUB_OUTPUT"
           fi
+
+          echo "deploy_url=$deploy_url" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
 
       - name: Validate content directory
         shell: bash
         run: |
           set -euo pipefail
           test -d "${{ inputs.content_dir }}"
-          test -f "${{ inputs.content_dir }}/_index.md"
+
+      - name: Stage build content
+        id: content
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ inputs.copy_root_only }}" == "true" ]]; then
+            test -f "${{ inputs.content_dir }}/_index.md"
+            staged_dir=".github/generated/content-${{ steps.settings.outputs.slug }}"
+            mkdir -p "$staged_dir"
+            cp "${{ inputs.content_dir }}/_index.md" "$staged_dir/_index.md"
+            echo "build_content_dir=$staged_dir" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_content_dir=${{ inputs.content_dir }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Generate Hugo config
         id: config
@@ -86,13 +129,13 @@ jobs:
           mkdir -p "$(dirname "$config_path")"
 
           cat > "$config_path" <<EOF
-          theme = "products"
+          theme = "${{ inputs.theme }}"
           defaultContentLanguage = "en"
           defaultContentLanguageInSubdir = false
           disableLanguages = ["de", "es", "fr", "ja", "ko", "ru", "zh", "ar", "it", "pt", "pl", "fa", "id", "cs", "vi", "tr", "th", "sv", "el", "uk"]
           [languages]
             [languages.en]
-              contentDir = "${{ inputs.content_dir }}"
+              contentDir = "${{ steps.content.outputs.build_content_dir }}"
               languageName = "English"
               languageCode = "en"
               weight = 1
@@ -117,13 +160,13 @@ jobs:
           [deployment]
           [[deployment.targets]]
           name = "staging"
-          URL = "${{ steps.settings.outputs.staging_url }}"
-          cloudFrontDistributionID = "E8DUFGQ3MLGGR"
+          URL = "${{ inputs.staging_deploy_url }}"
+          cloudFrontDistributionID = "${{ inputs.staging_distribution_id }}"
 
           [[deployment.targets]]
           name = "production"
-          URL = "${{ steps.settings.outputs.production_url }}"
-          cloudFrontDistributionID = "E1WTAPBGIKFKJJ"
+          URL = "${{ inputs.production_deploy_url }}"
+          cloudFrontDistributionID = "${{ inputs.production_distribution_id }}"
           EOF
 
           if [[ "${{ inputs.output_mode }}" == "home" ]]; then

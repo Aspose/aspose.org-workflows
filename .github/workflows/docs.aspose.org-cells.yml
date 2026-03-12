@@ -1,0 +1,26 @@
+name: docs.aspose.org-cells
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Build environment
+        type: environment
+        default: staging
+        required: true
+jobs:
+  deploy:
+    uses: ./.github/workflows/products.family.reusable.yml
+    with:
+      environment: ${{ github.event.inputs.environment }}
+      display_name: docs.aspose.org Cells
+      family_slug: cells
+      content_dir: content/docs.aspose.org/cells/en
+      theme: docs
+      staging_host: docs-qa.aspose.org
+      production_host: docs.aspose.org
+      staging_deploy_url: s3://docs-qa.aspose.org/?prefix=cells/&region=us-west-2
+      production_deploy_url: s3://docs.aspose.org/?prefix=cells/&region=us-west-2
+      staging_distribution_id: E1GXIZ6ANHACFK
+      production_distribution_id: E2LY67DCDQM49R
+      output_mode: family
+    secrets: inherit
