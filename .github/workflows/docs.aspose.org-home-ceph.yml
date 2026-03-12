@@ -1,0 +1,42 @@
+name: docs.aspose.org-home-ceph
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Build environment'
+        type: choice
+        options:
+          - production_ceph
+          - staging_ceph
+        default: staging_ceph
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout theme repo
+      uses: actions/checkout@main
+      with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+    - name: Setup Hugo
+      uses: peaceiris/actions-hugo@v2
+      with:
+          hugo-version: '0.136.0'
+          extended: true
+    - name: Determine Base URL
+      id: base-url
+      run: |
+        if [ "${{ github.event.inputs.environment }}" = "production_ceph" ]; then
+          echo "::set-output name=url::https://docs.aspose.org"
+        else
+          echo "::set-output name=url::https://docs-qa.aspose.org"
+        fi
+    - name: Build docs.aspose.org home
+      run: hugo --config "./configs/docs.aspose.org/home.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+    - name: Deploy docs.aspose.org home to Ceph
+      run: hugo deploy --config "./configs/docs.aspose.org/home.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}

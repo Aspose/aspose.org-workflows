@@ -23,4 +23,5 @@ jobs:
       staging_distribution_id: E8DUFGQ3MLGGR
       production_distribution_id: E1WTAPBGIKFKJJ
       output_mode: family
+      ceph_production_deploy_url: s3://products-aspose-org/?prefix=3d/&endpoint=https://s3.dynabic.com&region=us-east-1
     secrets: inherit
