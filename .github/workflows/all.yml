@@ -17,12 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Get sibling workflows
         run: |
-          # Exclude the main workflow file (all.yml) from the list of workflows
-          workflows=$(find .github/workflows -type f -name '*.yml' ! -name 'all.yml')
+          workflows=$(find .github/workflows -maxdepth 1 -type f -name '*.yml' ! -name 'all.yml' ! -name 'sitemap-scheduler.yml' ! -name '*.reusable.yml' | sort)
           echo "Filtered sibling workflows found:"
           echo "$workflows"
           echo "$workflows" > workflows.txt
