@@ -24,4 +24,5 @@ jobs:
       production_distribution_id: E1WTAPBGIKFKJJ
       output_mode: home
       copy_root_only: true
+      ceph_production_deploy_url: s3://products-aspose-org/?endpoint=https://s3.dynabic.com&region=us-east-1
     secrets: inherit

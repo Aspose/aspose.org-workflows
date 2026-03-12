@@ -41,3 +41,10 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+
+      - name: Deploy blog.aspose.org to Ceph
+        if: github.event.inputs.environment == 'production'
+        run: hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "production_ceph" --force
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}

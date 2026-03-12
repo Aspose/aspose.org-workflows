@@ -45,6 +45,10 @@ on:
         required: false
         type: boolean
         default: false
+      ceph_production_deploy_url:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   deploy:
@@ -169,6 +173,15 @@ jobs:
           cloudFrontDistributionID = "${{ inputs.production_distribution_id }}"
           EOF
 
+          if [[ -n "${{ inputs.ceph_production_deploy_url }}" ]]; then
+            cat >> "$config_path" <<EOF
+
+          [[deployment.targets]]
+          name = "production_ceph"
+          URL = "${{ inputs.ceph_production_deploy_url }}"
+          EOF
+          fi
+
           if [[ "${{ inputs.output_mode }}" == "home" ]]; then
             cat >> "$config_path" <<'EOF'
 
@@ -214,3 +227,10 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+
+      - name: Deploy ${{ inputs.display_name }} to Ceph
+        if: ${{ inputs.environment == 'production' && inputs.ceph_production_deploy_url != '' }}
+        run: hugo deploy --config "${{ steps.config.outputs.path }}" ${{ steps.settings.outputs.deploy_extra_args }} --target "production_ceph" --force
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
