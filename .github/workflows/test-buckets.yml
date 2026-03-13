@@ -1,0 +1,90 @@
+name: Test Buckets
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Build environment
+        type: environment
+        default: staging
+        required: true
+
+jobs:
+  test-buckets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.SECRET_ACCESS }}
+          aws-region: us-east-1
+
+      - name: Set bucket names
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "PRODUCTS_BUCKET=products.aspose.org" >> "$GITHUB_ENV"
+            echo "DOCS_BUCKET=docs.aspose.org" >> "$GITHUB_ENV"
+            echo "KB_BUCKET=kb.aspose.org" >> "$GITHUB_ENV"
+            echo "BLOG_BUCKET=blog.aspose.org" >> "$GITHUB_ENV"
+            echo "REFERENCE_BUCKET=reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "PRODUCTS_BUCKET=products-qa.aspose.org" >> "$GITHUB_ENV"
+            echo "DOCS_BUCKET=docs-qa.aspose.org" >> "$GITHUB_ENV"
+            echo "KB_BUCKET=kb-qa.aspose.org" >> "$GITHUB_ENV"
+            echo "BLOG_BUCKET=blog-qa.aspose.org" >> "$GITHUB_ENV"
+            echo "REFERENCE_BUCKET=reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test buckets
+        shell: bash
+        run: |
+          TEST_FILE="bucket-test-${{ github.run_id }}.txt"
+          echo "Bucket test - ${{ github.run_id }}" > "$TEST_FILE"
+
+          BUCKETS=(
+            "$PRODUCTS_BUCKET"
+            "$DOCS_BUCKET"
+            "$KB_BUCKET"
+            "$BLOG_BUCKET"
+            "$REFERENCE_BUCKET"
+          )
+
+          FAILED=0
+
+          for BUCKET in "${BUCKETS[@]}"; do
+            echo "--- Testing s3://$BUCKET ---"
+
+            if aws s3 ls "s3://$BUCKET" > /dev/null 2>&1; then
+              echo "  [OK] Bucket exists and is accessible"
+            else
+              echo "  [FAIL] Cannot access bucket"
+              FAILED=1
+              continue
+            fi
+
+            if aws s3 cp "$TEST_FILE" "s3://$BUCKET/$TEST_FILE" > /dev/null 2>&1; then
+              echo "  [OK] Write access confirmed"
+            else
+              echo "  [FAIL] Cannot write to bucket"
+              FAILED=1
+              continue
+            fi
+
+            if aws s3 rm "s3://$BUCKET/$TEST_FILE" > /dev/null 2>&1; then
+              echo "  [OK] Delete access confirmed"
+            else
+              echo "  [FAIL] Cannot delete from bucket"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "One or more bucket tests failed."
+            exit 1
+          else
+            echo ""
+            echo "All buckets are ready."
+          fi
