@@ -43,19 +43,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
 
       - name: Deploy blog.aspose.org to Ceph
-        shell: bash
-        run: |
-          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
-            TARGET="production_ceph"
-          else
-            TARGET="staging_ceph"
-          fi
-          hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "$TARGET" --force
+        if: github.event.inputs.environment == 'production'
+        run: hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "production_ceph" --force
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
 
       - name: Purge CDN cache
+        if: github.event.inputs.environment == 'production'
         shell: bash
         run: |
           curl -siG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
