@@ -36,16 +36,26 @@ jobs:
       - name: Build blog.aspose.org
         run: hugo --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
 
-      - name: Deploy blog.aspose.org
+      - name: Deploy blog.aspose.org to S3
         run: hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
 
       - name: Deploy blog.aspose.org to Ceph
-        if: github.event.inputs.environment == 'production'
-        run: hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "production_ceph" --force
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            TARGET="production_ceph"
+          else
+            TARGET="staging_ceph"
+          fi
+          hugo deploy --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" --target "$TARGET" --force
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
 
+      - name: Purge CDN cache
+        shell: bash
+        run: |
+          curl -siG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"

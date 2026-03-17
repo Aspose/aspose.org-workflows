@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Build environment'
+        description: Build environment
         type: environment
         default: staging
         required: true
@@ -11,29 +11,51 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout theme repo
-        uses: actions/checkout@main
+      - name: Checkout site repo
+        uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
+
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-          hugo-version: '0.136.0'
+          hugo-version: "0.136.0"
           extended: true
+
       - name: Determine Base URL
-        id: base-url
+        shell: bash
         run: |
-          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-            echo "url=https://www.aspose.org" >> $GITHUB_ENV
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://www.aspose.org" >> "$GITHUB_ENV"
           else
-            echo "url=https://qa.aspose.org" >> $GITHUB_ENV
+            echo "url=https://qa.aspose.org" >> "$GITHUB_ENV"
           fi
-      - name: Build WWW
+
+      - name: Build www.aspose.org
         run: hugo --config "./configs/www.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
-      - name: Deploy WWW to S3
-        run: hugo deploy --config "configs/www.aspose.org.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+
+      - name: Deploy www.aspose.org to S3
+        run: hugo deploy --config "./configs/www.aspose.org.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+
+      - name: Deploy www.aspose.org to Ceph
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            TARGET="production_ceph"
+          else
+            TARGET="staging_ceph"
+          fi
+          hugo deploy --config "./configs/www.aspose.org.toml" --maxDeletes=-1 --target "$TARGET" --force
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+
+      - name: Purge CDN cache
+        shell: bash
+        run: |
+          curl -siG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
