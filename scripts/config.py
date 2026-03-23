@@ -16,7 +16,7 @@ SUBDOMAINS = [
     "websites.aspose.org",
 ]
 
-# Content families per site (used by detect_changes.py and merge_search_data.py).
+# Content families per site (used by detect_changes.py).
 # NOT used for sitemaps — aspose.org has whole-site sitemaps only, no per-family sitemaps.
 SITE_FAMILIES = {
     "products.aspose.org": [
@@ -31,7 +31,7 @@ SITE_FAMILIES = {
     "blog.aspose.org":       ["3d", "cells", "email", "note", "slides"],
 }
 
-# Union of all families (for merge_search_data)
+# Union of all families
 ALL_FAMILIES = sorted(set(f for fams in SITE_FAMILIES.values() for f in fams))
 
 # Languages used across multilingual sites (from products.aspose.org lang dirs)
