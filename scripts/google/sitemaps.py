@@ -93,8 +93,13 @@ def main():
     dry_run = "--dry-run" in sys.argv
 
     if not dry_run:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
+        try:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+        except ImportError as e:
+            print(f"[ERROR] Missing Google libraries: {e}")
+            print("[ERROR] Install: google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client")
+            sys.exit(1)
 
         # Load credentials from GitHub Actions secret
         try:
