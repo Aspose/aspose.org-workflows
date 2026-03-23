@@ -5,7 +5,7 @@ import requests
 import xml.etree.ElementTree as ET
 
 # Import shared config
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.append( os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from config import SUBDOMAINS
 
 

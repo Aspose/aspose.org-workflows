@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timezone
 
 # Import shared config
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.append( os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from config import DOMAIN, SUBDOMAINS
 
 # --- Mapping Configuration ---
