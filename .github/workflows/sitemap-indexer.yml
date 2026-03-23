@@ -17,7 +17,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 requests
+          python -m pip install --upgrade pip
+          python -m pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 requests
 
       - name: Prepare URL batches from sitemaps
         run: python scripts/google/gsc/sitemap_parser.py
