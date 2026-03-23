@@ -1,0 +1,59 @@
+name: GSC Query Collector
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday at 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update_queries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        subdomain:
+          - www.aspose.org
+          - products.aspose.org
+          - docs.aspose.org
+          - kb.aspose.org
+          - blog.aspose.org
+          - reference.aspose.org
+          - websites.aspose.org
+    env:
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+    steps:
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+
+      - name: Checkout content repo
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          path: content-repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
+
+      - name: Run keyword extraction for ${{ matrix.subdomain }}
+        run: |
+          python scripts/google/query-collector.py \
+            --subdomain ${{ matrix.subdomain }} \
+            --base-dir content-repo/keywords
+
+      - name: Commit and push keywords for ${{ matrix.subdomain }}
+        working-directory: content-repo
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.REPO_TOKEN }}@github.com/Aspose/aspose.org.git
+          git pull --rebase --autostash origin main
+          git add keywords/
+          git diff --cached --quiet || git commit -m "Update queries for ${{ matrix.subdomain }}"
+          git push origin main || echo "Push failed due to concurrent update."

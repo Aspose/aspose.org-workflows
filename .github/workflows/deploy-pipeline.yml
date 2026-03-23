@@ -1,0 +1,41 @@
+name: Deploy Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      content_sha:
+        description: 'Content repo SHA being deployed'
+        required: true
+        type: string
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Trigger all workflows (fire-and-forget)
+        run: |
+          python3 scripts/deploy/trigger_workflows.py \
+            --manifest scripts/deploy/deploy_manifest.json
+
+      - name: Commit manifest with trigger timestamps
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add scripts/deploy/deploy_manifest.json
+          git diff --cached --quiet || git commit -m "Deploy triggered: $(date -u +%Y-%m-%d)"
+          git pull --rebase
+          git push

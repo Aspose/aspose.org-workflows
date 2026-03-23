@@ -1,0 +1,36 @@
+name: Sitemap Indexer
+
+on:
+  workflow_dispatch:  # Manual execution only
+
+jobs:
+  submit_sitemaps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 requests
+
+      - name: Prepare URL batches from sitemaps
+        run: python scripts/google/gsc/sitemap_parser.py
+
+      - name: Submit batches to Google Indexing API
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python scripts/google/gsc/batch_submitter.py
+
+      - name: Commit processed URLs log
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions@github.com"
+          git add logs/processed_urls.json logs/batches_to_submit.json
+          git commit -m "Update processed URLs log" || echo "No changes to commit"
+          git push

@@ -1,0 +1,6 @@
+{
+  "skip_staging_workflows": [
+    "blog.aspose.org.yml"
+  ],
+  "workflow_timeout_minutes": 120
+}

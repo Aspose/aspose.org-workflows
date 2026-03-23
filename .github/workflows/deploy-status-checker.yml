@@ -1,0 +1,46 @@
+name: Deploy Status Checker
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch: {}  # Manual trigger for debugging
+
+concurrency:
+  group: deploy-status-checker
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run status checker
+        id: check
+        run: |
+          python3 scripts/deploy/check_status.py \
+            --manifest scripts/deploy/deploy_manifest.json \
+            --config scripts/deploy/deploy_config.json
+
+      - name: Commit manifest updates
+        if: steps.check.outputs.manifest_changed == 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add scripts/deploy/deploy_manifest.json scripts/deploy/scan_state.json
+          STATE=$(python3 -c "import json; print(json.load(open('scripts/deploy/deploy_manifest.json'))['state'])")
+          git diff --cached --quiet || git commit -m "Deploy status: $STATE $(date -u +%Y-%m-%d)"
+          git pull --rebase
+          git push

@@ -21,7 +21,13 @@ jobs:
         run: |
           workflows=$(find .github/workflows -maxdepth 1 -type f -name '*.yml' \
             ! -name 'all.yml' \
-            ! -name 'sitemap-scheduler.yml' \
+            ! -name 'change-scanner.yml' \
+            ! -name 'deploy-pipeline.yml' \
+            ! -name 'deploy-status-checker.yml' \
+            ! -name 'submit-google-sitemap.yml' \
+            ! -name 'submit-yandex-sitemap.yml' \
+            ! -name 'sitemap-indexer.yml' \
+            ! -name 'gsc-query-collector.yml' \
             ! -name '*.reusable.yml' | sort)
           echo "Filtered sibling workflows found:"
           echo "$workflows"
