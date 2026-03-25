@@ -17,6 +17,10 @@ venv/
 # Node
 node_modules/
 
+# Google Apps Script credentials
+.clasp.json
+creds.json
+
 # OS
 .DS_Store
 Thumbs.db
