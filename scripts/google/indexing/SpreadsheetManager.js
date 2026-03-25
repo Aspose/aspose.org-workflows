@@ -6,7 +6,7 @@
 
 class SpreadsheetManagerV2 {
   constructor() {
-    this.FOLDER_NAME = "indexing";
+    this.FOLDER_NAME = "aspose-org-indexing";
     this.folderCache = null;
     this.cacheExpiry = 5 * 60 * 1000;
     this.lastFolderCacheTime = 0;
@@ -24,9 +24,25 @@ class SpreadsheetManagerV2 {
   getIndexingFolder() {
     if (this.folderCache && (Date.now() - this.lastFolderCacheTime) < this.cacheExpiry) return this.folderCache;
     try {
-      const folders = DriveApp.getFoldersByName(this.FOLDER_NAME);
+      // Try cached folder ID first (avoids full Drive search)
+      var props = PropertiesService.getScriptProperties();
+      var cachedFolderId = props.getProperty("indexing_folder_id");
+      if (cachedFolderId) {
+        try {
+          this.folderCache = DriveApp.getFolderById(cachedFolderId);
+          this.lastFolderCacheTime = Date.now();
+          return this.folderCache;
+        } catch (e) {
+          Logger.log("Cached folder ID invalid, searching by name");
+          props.deleteProperty("indexing_folder_id");
+        }
+      }
+      // Fall back to name search
+      var folders = DriveApp.getFoldersByName(this.FOLDER_NAME);
       this.folderCache = folders.hasNext() ? folders.next() : DriveApp.createFolder(this.FOLDER_NAME);
       this.lastFolderCacheTime = Date.now();
+      // Cache the folder ID for future use
+      props.setProperty("indexing_folder_id", this.folderCache.getId());
       Logger.log("Indexing folder: " + this.folderCache.getId());
       return this.folderCache;
     } catch (error) {
@@ -101,7 +117,7 @@ class SpreadsheetManagerV2 {
   parseSpreadsheetName(name) {
     if (!name || typeof name !== "string") return null;
     const parts = name.replace(/_indexing$/, "").split("_");
-    if (parts.length >= 2) return { subdomain: parts[0], language: parts[1] };
+    if (parts.length === 2) return { subdomain: parts[0], language: parts[1] };
     if (parts.length === 1) return { subdomain: parts[0], language: "root" };
     return null;
   }
@@ -142,9 +158,9 @@ class SpreadsheetManagerV2 {
   }
 
   hasSpreadsheets(hierarchy, subdomain, language) {
-    return hierarchy[subdomain] &&
-           hierarchy[subdomain][language] &&
-           hierarchy[subdomain][language].count > 0;
+    return !!(hierarchy[subdomain] &&
+              hierarchy[subdomain][language] &&
+              hierarchy[subdomain][language].count > 0);
   }
 
   getProcessingStatistics() {

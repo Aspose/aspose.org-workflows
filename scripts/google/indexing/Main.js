@@ -305,6 +305,14 @@ function testHierarchicalProcessing(subdomain = 'products', language = 'en') {
 }
 
 /**
+ * Stub for Google rate-limit recovery.
+ * The daily trigger at 3 AM handles the next run automatically.
+ */
+function scheduleNextGoogleRun() {
+  Logger.log("Google rate limited — daily trigger at 3 AM will handle next run");
+}
+
+/**
  * Analyze processing time estimates
  */
 function analyzeProcessingTime() {

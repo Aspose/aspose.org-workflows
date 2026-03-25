@@ -15,15 +15,29 @@ const INDEXNOW_ENDPOINTS = {
   "yep": "https://indexnow.yep.com/indexnow"
 };
 
+/**
+ * IndexNow API key for aspose.org.
+ * To set up: generate a key string, then deploy it as a text file at
+ * https://{subdomain}.aspose.org/{key}.txt on all 7 subdomains
+ * (products, docs, kb, reference, www, about, blog).
+ * One key works for all IndexNow engines.
+ */
 const INDEXNOW_KEYS = {
-  "bing": "d3c2ce7e9130493786bc369c28654bd7",
-  "yandex": "d3c2ce7e9130493786bc369c28654bd7",
-  "naver": "d3c2ce7e9130493786bc369c28654bd7",
-  "seznam": "d3c2ce7e9130493786bc369c28654bd7",
-  "yep": "d3c2ce7e9130493786bc369c28654bd7"
+  "bing": "REDACTED_INDEXNOW_KEY",
+  "yandex": "REDACTED_INDEXNOW_KEY",
+  "naver": "REDACTED_INDEXNOW_KEY",
+  "seznam": "REDACTED_INDEXNOW_KEY",
+  "yep": "REDACTED_INDEXNOW_KEY"
 };
 
-const SERVICE_ACCOUNT_EMAIL = "aspose-net@aspose-net.iam.gserviceaccount.com";
+/**
+ * Google service account for aspose.org.
+ * Requirements:
+ *   - Google Indexing API enabled in its GCP project
+ *   - Owner-level access in Google Search Console for sc-domain:aspose.org
+ * Provide: email address + private key from the JSON key file.
+ */
+const SERVICE_ACCOUNT_EMAIL = "REDACTED_SA_EMAIL";
 const SERVICE_ACCOUNT_PRIVATE_KEY = "REDACTED_PRIVATE_KEY";
 
 /**

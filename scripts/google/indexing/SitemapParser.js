@@ -564,9 +564,13 @@ class SitemapParser {
       }
 
       const response = UrlFetchApp.fetch(sitemapUrl, {
-        method: 'HEAD', // Just get headers
+        method: 'GET',
         muteHttpExceptions: true,
-        followRedirects: true
+        followRedirects: true,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; SitemapParser/1.0; Google Apps Script)',
+          'Accept': 'application/xml,text/xml,*/*'
+        }
       });
 
       const responseCode = response.getResponseCode();

@@ -266,28 +266,4 @@ class SitemapCollectorV2 {
   }
 }
 
-/**
- * Main entry point for sitemap collection (called by trigger).
- */
-function collectAllURLs() {
-  Logger.log("=== SITEMAP COLLECTION (aspose.org) ===");
-  resetTimer();
-  try {
-    const collector = new SitemapCollectorV2();
-    const result = collector.collectSitemapsHierarchical();
-    Logger.log("Processed: " + result.processed + " sitemaps");
-    Logger.log("URLs collected: " + result.urlsCollected);
-    if (result.completed) {
-      Logger.log("ALL SITEMAPS COLLECTED!");
-    } else {
-      Logger.log("Progress: " + collector.getCollectionStatus().percentComplete + "% complete");
-    }
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty("last_sitemap_run", new Date().toISOString());
-    if (result.completed) props.setProperty("last_collection_complete", new Date().toISOString());
-    return result;
-  } catch (error) {
-    Logger.log("CRITICAL ERROR: " + error.message);
-    return { success: false, error: error.message };
-  }
-}
+// collectAllURLs() is defined in Main.js (single definition to avoid GAS namespace conflict)

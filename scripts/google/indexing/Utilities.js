@@ -55,18 +55,24 @@ function shouldResubmit(status) {
       const [year, month, day] = statusStr.split("-").map(Number);
       
       // Validate date components
-      if (year < 2020 || year > 2030 || month < 1 || month > 12 || day < 1 || day > 31) {
+      if (month < 1 || month > 12 || day < 1 || day > 31) {
         Logger.log(`Invalid date format: ${statusStr}, treating as pending`);
         return true;
       }
-      
+
       const lastSubmissionDate = new Date(year, month - 1, day);
       const currentDate = new Date();
-      
+
       // Check if date is in the future (shouldn't happen, but handle gracefully)
       if (lastSubmissionDate > currentDate) {
         Logger.log(`Future date detected: ${statusStr}, treating as completed`);
         return false;
+      }
+
+      // Reject unreasonably old dates
+      if (year < 2020) {
+        Logger.log(`Very old date: ${statusStr}, treating as pending`);
+        return true;
       }
       
       const differenceInTime = currentDate - lastSubmissionDate;
@@ -821,9 +827,10 @@ function healthCheck() {
     // Check indexing folder and spreadsheets
     Logger.log("\nChecking storage system...");
     try {
-      const Spreadsheet = new SpreadsheetManager();
-      const folder = Spreadsheet.getIndexingFolder();
-      const spreadsheets = Spreadsheet.getAllIndexingSpreadsheets();
+      const spreadsheetMgr = new SpreadsheetManagerV2();
+      const folder = spreadsheetMgr.getIndexingFolder();
+      const stats = spreadsheetMgr.getProcessingStatistics();
+      const spreadsheets = { length: stats.totalSpreadsheets };
       
       Logger.log(`Indexing folder: ${spreadsheets.length} spreadsheets found`);
       healthReport.components.storage = { 
@@ -1055,20 +1062,7 @@ function getPerformanceTrends(days = 7) {
   }
 }
 
-/**
- * Helper function to format date from Date object
- */
-function getShortDateFromDate(dateObj) {
-  try {
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  } catch (error) {
-    Logger.log(`Error formatting date object: ${error.message}`);
-    return getShortDate(); // Fallback to current date
-  }
-}
+// getShortDateFromDate() is defined earlier in this file (line ~431) — single definition to avoid override
 
 /**
  * Enhanced cleanup of old performance metrics with better filtering
