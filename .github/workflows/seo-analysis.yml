@@ -1,0 +1,61 @@
+name: SEO Analysis Pipeline
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Monday 6am UTC — runs after Sunday gsc-query-collector
+  workflow_dispatch:
+    inputs:
+      families:
+        description: 'Comma-separated families to analyze (blank = all)'
+        required: false
+        default: ''
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    env:
+      LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
+      SEO_FAMILIES: ${{ inputs.families }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml openai
+
+      - name: Validate keyword assets
+        run: python scripts/seo/pipeline/validate.py
+
+      - name: Build content page inventory
+        run: python scripts/seo/pipeline/inventory.py
+
+      - name: Map GSC URLs to content files
+        run: python scripts/seo/pipeline/map_url.py
+
+      - name: Score opportunities
+        run: python scripts/seo/pipeline/analyze.py
+
+      - name: Generate recommendations
+        run: python scripts/seo/pipeline/recommend.py
+
+      - name: Run safety checks
+        run: python scripts/seo/pipeline/safety.py
+
+      - name: Generate reports and patch manifest
+        run: python scripts/seo/pipeline/report.py
+
+      - name: Upload SEO analysis artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: seo-analysis-${{ github.run_id }}
+          path: |
+            reports/seo/
+            patches/seo/
+          retention-days: 30
