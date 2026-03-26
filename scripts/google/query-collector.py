@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import re
+import statistics
 from datetime import datetime, timedelta
 
 from googleapiclient.discovery import build
@@ -72,13 +73,15 @@ def fetch_gsc_data(site_url, start_date, end_date):
     response = service.searchanalytics().query(siteUrl=site_url, body=request).execute()
     return response.get('rows', [])
 
-def group_keywords_by_page(rows):
+def group_queries_by_page(rows, min_impressions=5):
     """
-    Groups rows returned from the GSC API by page URL,
-    filtering out pages with paths containing /tag/, /categories/, or /archives/.
-    Returns a dictionary mapping page URL to a set of keywords.
+    Groups rows returned from the GSC API by page URL, capturing per-query metrics.
+    Filters out pages with paths containing /tag/, /categories/, or /archives/.
+    Filters out queries with impressions below min_impressions.
+    Returns a dictionary mapping page URL to a list of query metric dicts:
+        [{"query": str, "clicks": int, "impressions": int, "ctr": float, "position": float}, ...]
     """
-    page_keywords = {}
+    page_queries = {}
     unwanted_patterns = ['/tag/', '/categories/', '/archives/']
     for row in rows:
         keys = row.get('keys', [])
@@ -87,10 +90,22 @@ def group_keywords_by_page(rows):
         page, query = keys[0], keys[1]
         if any(pattern in page for pattern in unwanted_patterns):
             continue
-        if page not in page_keywords:
-            page_keywords[page] = set()
-        page_keywords[page].add(query)
-    return page_keywords
+        impressions = row.get('impressions', 0)
+        if impressions < min_impressions:
+            continue
+        if page not in page_queries:
+            page_queries[page] = []
+        page_queries[page].append({
+            'query':       query,
+            'clicks':      row.get('clicks', 0),
+            'impressions': impressions,
+            'ctr':         round(row.get('ctr', 0.0), 6),
+            'position':    round(row.get('position', 0.0), 2),
+        })
+    # Sort each page's queries by impressions descending
+    for page in page_queries:
+        page_queries[page].sort(key=lambda q: q['impressions'], reverse=True)
+    return page_queries
 
 def main():
     parser = argparse.ArgumentParser(
@@ -99,10 +114,13 @@ def main():
                         help='Subdomain identifier (e.g., docs.aspose.org)')
     parser.add_argument('--base-dir', type=str,
                         help='Base directory to store keywords JSON (overrides default repo-root/keywords)')
+    parser.add_argument('--min-impressions', type=int, default=5,
+                        help='Minimum impressions threshold; queries below this are excluded (default: 5)')
     args = parser.parse_args()
 
     subdomain = args.subdomain
     base_dir = args.base_dir  # May be None; get_keywords_file will handle it.
+    min_impressions = args.min_impressions
 
     site_url = f"https://{subdomain}"
     print(f"Fetching data for site: {site_url}")
@@ -118,15 +136,26 @@ def main():
         print("No data returned from GSC.")
         return
 
-    page_keywords = group_keywords_by_page(rows)
+    page_queries = group_queries_by_page(rows, min_impressions=min_impressions)
 
     output_data = []
-    for page_url, keywords_set in page_keywords.items():
+    for page_url, queries in page_queries.items():
+        clicks_list      = [q['clicks']      for q in queries]
+        impressions_list = [q['impressions'] for q in queries]
+        position_list    = [q['position']    for q in queries]
+        ctr_list         = [q['ctr']         for q in queries]
         record = {
-            'url': page_url,
-            'keywords': sorted(list(keywords_set)),
-            'lang': detect_language_from_url(page_url),
-            'lastUpdated': end_date_str
+            'url':         page_url,
+            'lang':        detect_language_from_url(page_url),
+            'lastUpdated': end_date_str,
+            'queries':     queries,
+            'keywords':    [q['query'] for q in queries],  # backward compat, impressions-desc order
+            'agg': {
+                'total_clicks':       sum(clicks_list),
+                'total_impressions':  sum(impressions_list),
+                'avg_position':       round(statistics.mean(position_list), 2),
+                'avg_ctr':            round(statistics.mean(ctr_list), 6),
+            },
         }
         output_data.append(record)
 
