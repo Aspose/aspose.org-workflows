@@ -19,10 +19,11 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Hugo
-        uses: peaceiris/actions-hugo@v2
-        with:
-          hugo-version: "0.154.5"
-          extended: true
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          sudo mv hugo /usr/local/bin/hugo
+          hugo version
 
       - name: Setup Python
         uses: actions/setup-python@v5
