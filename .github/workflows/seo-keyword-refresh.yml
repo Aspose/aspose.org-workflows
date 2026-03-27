@@ -1,0 +1,139 @@
+# seo-keyword-refresh.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# This workflow must live in the public aspose.org-workflows repo alongside
+# seo-analysis.yml and seo-apply.yml. It checks out the private Aspose/aspose.org
+# repo at runtime using GH_TOKEN, runs the keyword generation scripts, and opens a
+# pull request back on Aspose/aspose.org if any keyword files changed.
+#
+# Required secrets (set in Aspose/aspose.org-workflows):
+#   GOOGLE_API_KEY  - Gemini API key for get_keywords.py
+#   GH_TOKEN        - PAT with repo (full) scope on Aspose/aspose.org
+#                     (same token used by seo-analysis.yml and seo-apply.yml)
+#
+# To trigger manually:
+#   Aspose/aspose.org-workflows -> Actions -> SEO Schema A Keyword Refresh -> Run workflow
+
+name: SEO Schema A Keyword Refresh
+
+on:
+  schedule:
+    # First Sunday of each month at 07:00 UTC (one hour after gsc-query-collector)
+    - cron: '0 7 1-7 * 0'
+  workflow_dispatch:
+    inputs:
+      families:
+        description: >
+          Space-separated list of families to refresh.
+          Leave blank to refresh all 18 default families.
+        required: false
+        default: ''
+      content_sites:
+        description: >
+          Comma-separated content directories to scan (relative to repo root).
+          Default scans kb, docs, and products.
+        required: false
+        default: 'content/kb.aspose.org,content/docs.aspose.org/en,content/products.aspose.org/en'
+
+jobs:
+  refresh-keywords:
+    name: Refresh Schema A keywords
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Aspose/aspose.org
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml google-generativeai
+
+      - name: Determine families argument
+        id: families
+        run: |
+          if [ -n "${{ github.event.inputs.families }}" ]; then
+            echo "args=--families ${{ github.event.inputs.families }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Refresh keywords for all content sites
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if [ -z "$GOOGLE_API_KEY" ]; then
+            echo "ERROR: GOOGLE_API_KEY secret is not set. Add it under Aspose/aspose.org-workflows Settings -> Secrets -> Actions." >&2
+            exit 1
+          fi
+          SITES="${{ github.event.inputs.content_sites || 'content/kb.aspose.org,content/docs.aspose.org/en,content/products.aspose.org/en' }}"
+          IFS=',' read -ra SITE_ARRAY <<< "$SITES"
+          for site in "${SITE_ARRAY[@]}"; do
+            echo "=== Processing: $site ==="
+            python scripts/seo/get_keywords.py "$site" keywords/ ${{ steps.families.outputs.args }} \
+              || echo "WARNING: $site exited non-zero (likely missing family sub-directories - non-fatal)"
+          done
+
+      - name: Run validation to confirm schema integrity
+        run: python scripts/seo/pipeline/validate.py
+
+      - name: Summarize changes
+        id: summary
+        run: |
+          CHANGED=$(git diff --name-only keywords/ | wc -l | tr -d ' ')
+          echo "changed_files=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "### Keyword Refresh Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Changed files: $CHANGED" >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat keywords/ >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Open PR on Aspose/aspose.org if keywords changed
+        if: steps.summary.outputs.changed_files != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+        run: |
+          BRANCH="seo/keyword-refresh-$(date +%Y%m)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add keywords/
+          git commit -m "chore(seo): refresh Schema A keywords [$(date +%Y-%m)]"
+          git push origin "$BRANCH"
+          {
+            echo "## Schema A Keyword Refresh"
+            echo ""
+            echo "Automated monthly refresh of LLM-derived Schema A keyword sets."
+            echo ""
+            echo "**Changes:**"
+            echo "- Updated \`keywords/{family}.json\` files for all families"
+            echo "- Scanned \`content/kb.aspose.org\`, \`content/docs.aspose.org/en\`, \`content/products.aspose.org/en\`"
+            echo "- Validation passed (\`validate.py\` exit 0)"
+            echo ""
+            echo "**Review checklist:**"
+            echo "- [ ] No unexpected keyword deletions (check diff for removed \`pageTitle\` entries)"
+            echo "- [ ] No plugin-metadata contamination (keys should only be \`pageTitle\` + \`keywords\`)"
+            echo "- [ ] Family JSON files that changed make sense for the families listed"
+            echo ""
+            echo "**Next step after merge:** Re-run \`seo-analysis.yml\` to pick up the refreshed keyword signals."
+            echo ""
+            echo "---"
+            echo "Generated by \`seo-keyword-refresh.yml\` in Aspose/aspose.org-workflows"
+          } > /tmp/pr-body.md
+          gh pr create \
+            --repo Aspose/aspose.org \
+            --title "chore(seo): Schema A keyword refresh [$(date +%Y-%m)]" \
+            --body-file /tmp/pr-body.md \
+            --base main \
+            --head "$BRANCH"
+
+      - name: Skip PR - no keyword changes
+        if: steps.summary.outputs.changed_files == '0'
+        run: echo "No keyword files changed; skipping PR creation."
