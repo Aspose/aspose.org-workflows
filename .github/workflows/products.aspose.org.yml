@@ -63,7 +63,14 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
 
-      - name: Deploy products.aspose.org to Ceph
+      - name: Deploy products.aspose.org to Ceph (staging)
+        if: github.event.inputs.environment == 'staging'
+        run: hugo deploy --config "./configs/products.aspose.org.toml" --target "staging_ceph" --force
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
+
+      - name: Deploy products.aspose.org to Ceph (production)
         if: github.event.inputs.environment == 'production'
         run: hugo deploy --config "./configs/products.aspose.org.toml" --target "production_ceph" --force
         env:
