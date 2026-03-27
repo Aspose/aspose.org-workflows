@@ -40,6 +40,12 @@ jobs:
   refresh-keywords:
     name: Refresh Schema A keywords
     runs-on: ubuntu-latest
+    # Free-tier Gemini API: 1,500 RPD / 15 RPM.
+    # get_keywords.py already sleeps 60s on 429s (15 RPM throttle).
+    # 90-min timeout caps this run at ~1,350 calls max — safely under the daily limit.
+    # On first run for new families (3d, cad, diagram, email, note, slides), use
+    # workflow_dispatch with --families to seed one family at a time if needed.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout Aspose/aspose.org
