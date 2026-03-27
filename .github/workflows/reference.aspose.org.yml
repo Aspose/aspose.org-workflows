@@ -78,7 +78,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
       - name: Purge CDN cache
         if: github.event.inputs.environment == 'production'
