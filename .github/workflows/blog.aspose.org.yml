@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Build blog.aspose.org
-        run: hugo --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+        run: hugo --config "./configs/blog.aspose.org.toml,./configs/blog.aspose.org.yml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}"
 
       - name: Generate LLM files
         run: |
