@@ -16,29 +16,27 @@ const INDEXNOW_ENDPOINTS = {
 };
 
 /**
- * IndexNow API key for aspose.org.
- * To set up: generate a key string, then deploy it as a text file at
- * https://{subdomain}.aspose.org/{key}.txt on all 7 subdomains
- * (products, docs, kb, reference, www, about, blog).
- * One key works for all IndexNow engines.
+ * Credentials are stored in ScriptProperties (never hardcoded).
+ * To inject: clasp run setCredentials --params '["<email>","<key>","<indexnow>"]'
+ * GitHub Actions injects them automatically via the deploy workflow.
+ *
+ * ScriptProperty keys:
+ *   SERVICE_ACCOUNT_EMAIL       — aspose.org Google service account email
+ *   SERVICE_ACCOUNT_PRIVATE_KEY — PEM private key (BEGIN PRIVATE KEY block)
+ *   INDEXNOW_KEY                — IndexNow API key (same for all engines)
  */
+const _credProps = PropertiesService.getScriptProperties();
+const _indexNowKey = _credProps.getProperty('INDEXNOW_KEY') || '';
 const INDEXNOW_KEYS = {
-  "bing": "REDACTED_INDEXNOW_KEY",
-  "yandex": "REDACTED_INDEXNOW_KEY",
-  "naver": "REDACTED_INDEXNOW_KEY",
-  "seznam": "REDACTED_INDEXNOW_KEY",
-  "yep": "REDACTED_INDEXNOW_KEY"
+  "bing": _indexNowKey,
+  "yandex": _indexNowKey,
+  "naver": _indexNowKey,
+  "seznam": _indexNowKey,
+  "yep": _indexNowKey
 };
 
-/**
- * Google service account for aspose.org.
- * Requirements:
- *   - Google Indexing API enabled in its GCP project
- *   - Owner-level access in Google Search Console for sc-domain:aspose.org
- * Provide: email address + private key from the JSON key file.
- */
-const SERVICE_ACCOUNT_EMAIL = "REDACTED_SA_EMAIL";
-const SERVICE_ACCOUNT_PRIVATE_KEY = "REDACTED_PRIVATE_KEY";
+const SERVICE_ACCOUNT_EMAIL = _credProps.getProperty('SERVICE_ACCOUNT_EMAIL') || '';
+const SERVICE_ACCOUNT_PRIVATE_KEY = _credProps.getProperty('SERVICE_ACCOUNT_PRIVATE_KEY') || '';
 
 /**
  * Generates the list of aspose.org sitemaps.

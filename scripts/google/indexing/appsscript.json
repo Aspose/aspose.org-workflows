@@ -3,7 +3,7 @@
   "dependencies": {
   },
   "exceptionLogging": "STACKDRIVER",
-  "oauthScopes": ["https://www.googleapis.com/auth/indexing", "https://www.googleapis.com/auth/script.external_request", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/script.scriptapp", "https://www.googleapis.com/auth/script.container.ui", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file"],
+  "oauthScopes": ["https://www.googleapis.com/auth/indexing", "https://www.googleapis.com/auth/script.external_request", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/script.scriptapp", "https://www.googleapis.com/auth/script.container.ui", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/script.storage"],
   "runtimeVersion": "V8",
   "executionApi": {
     "access": "MYSELF"

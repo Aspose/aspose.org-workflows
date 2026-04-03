@@ -68,6 +68,37 @@ function resetForAsposeOrg() {
 }
 
 /**
+ * Stores aspose.org credentials in ScriptProperties so they are never
+ * hardcoded in source files.
+ *
+ * In GitHub Actions: call this after `clasp push` using secrets:
+ *   clasp run setCredentials \
+ *     --params '["$EMAIL", "$KEY", "$INDEXNOW"]'
+ *
+ * Locally (one-time setup):
+ *   clasp run setCredentials \
+ *     --params '["<email>", "<private_key>", "<indexnow_key>"]'
+ */
+function setCredentials(serviceAccountEmail, serviceAccountPrivateKey, indexNowKey) {
+  var props = PropertiesService.getScriptProperties();
+  var set = [];
+  if (serviceAccountEmail) {
+    props.setProperty('SERVICE_ACCOUNT_EMAIL', serviceAccountEmail);
+    set.push('SERVICE_ACCOUNT_EMAIL');
+  }
+  if (serviceAccountPrivateKey) {
+    props.setProperty('SERVICE_ACCOUNT_PRIVATE_KEY', serviceAccountPrivateKey);
+    set.push('SERVICE_ACCOUNT_PRIVATE_KEY');
+  }
+  if (indexNowKey) {
+    props.setProperty('INDEXNOW_KEY', indexNowKey);
+    set.push('INDEXNOW_KEY');
+  }
+  Logger.log('setCredentials: stored ' + set.join(', '));
+  return { success: true, stored: set };
+}
+
+/**
  * Diagnostic: read first few rows from a spreadsheet to verify status columns.
  * Usage: clasp run verifySpreadsheetData
  */
