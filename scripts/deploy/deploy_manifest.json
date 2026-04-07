@@ -4,7 +4,7 @@
   "previous_sha": "6912cbc626706022fac2a691866adb966fa1a1bb",
   "detected_at": "2026-04-07T05:47:16.293412+00:00",
   "global_change": true,
-  "state": "production",
+  "state": "failed",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
@@ -12,8 +12,8 @@
       "staging_run_id": 24066474111,
       "staging_status": "success",
       "production_trigger_time": "2026-04-07T06:23:16Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24067545279,
+      "production_status": "success"
     },
     {
       "workflow": "kb.aspose.org.yml",
@@ -21,8 +21,8 @@
       "staging_run_id": 24066477110,
       "staging_status": "success",
       "production_trigger_time": "2026-04-07T06:23:22Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24067548449,
+      "production_status": "success"
     },
     {
       "workflow": "products.aspose.org.yml",
@@ -30,8 +30,8 @@
       "staging_run_id": 24066479981,
       "staging_status": "success",
       "production_trigger_time": "2026-04-07T06:23:29Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24067551093,
+      "production_status": "success"
     },
     {
       "workflow": "reference.aspose.org.yml",
@@ -39,8 +39,8 @@
       "staging_run_id": 24066482605,
       "staging_status": "success",
       "production_trigger_time": "2026-04-07T06:23:35Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24067554185,
+      "production_status": "success"
     },
     {
       "workflow": "websites.aspose.org.yml",
@@ -48,8 +48,8 @@
       "staging_run_id": 24066485763,
       "staging_status": "success",
       "production_trigger_time": "2026-04-07T06:23:41Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24067557323,
+      "production_status": "failed"
     },
     {
       "workflow": "www.aspose.org.yml",
@@ -70,6 +70,6 @@
     }
   ],
   "completed_at": null,
-  "failed_at": null,
-  "error": null
+  "failed_at": "2026-04-07T07:56:30.817098+00:00",
+  "error": "Production failed: websites.aspose.org.yml (conclusion: failure)"
 }
