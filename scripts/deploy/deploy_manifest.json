@@ -4,22 +4,22 @@
   "previous_sha": "605017c9a150b4e92ea7b76477454f01a776d9a8",
   "detected_at": "2026-04-13T06:14:44.599790+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "failed",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
       "staging_trigger_time": "2026-04-13T06:14:54Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 24328597970,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "failed"
     },
     {
       "workflow": "kb.aspose.org.yml",
       "staging_trigger_time": "2026-04-13T06:15:00Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 24328601201,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -27,8 +27,8 @@
     {
       "workflow": "products.aspose.org.yml",
       "staging_trigger_time": "2026-04-13T06:15:06Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 24328604741,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -36,8 +36,8 @@
     {
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-04-13T06:15:13Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 24328608472,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -47,11 +47,11 @@
     {
       "workflow": "blog.aspose.org.yml",
       "production_trigger_time": "2026-04-13T06:15:19Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 24328611990,
+      "production_status": "success"
     }
   ],
   "completed_at": null,
-  "failed_at": null,
-  "error": null
+  "failed_at": "2026-04-13T06:25:39.162415+00:00",
+  "error": "Failed to trigger production: docs.aspose.org.yml"
 }
