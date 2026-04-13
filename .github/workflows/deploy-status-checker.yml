@@ -12,8 +12,6 @@ on:
       - "blog.aspose.org"
     types:
       - completed
-    branches:
-      - main
   schedule:
     - cron: '0 * * * *'  # Hourly safety net — catches missed events and timeout scenarios
   workflow_dispatch: {}  # Manual trigger for debugging
@@ -69,12 +67,8 @@ jobs:
         run: |
           ERROR=$(python3 -c "import json; m=json.load(open('scripts/deploy/deploy_manifest.json')); print(m.get('error','Unknown'))")
           SCAN_ID=$(python3 -c "import json; m=json.load(open('scripts/deploy/deploy_manifest.json')); print(m.get('scan_id','unknown'))")
+          BODY=$(printf '**Error:** %s\n\n**Scan ID:** `%s`\n**Run:** ${{ github.run_id }}\n\nReview the manifest and re-trigger manually after resolving the root cause.' "$ERROR" "$SCAN_ID")
           gh issue create \
             --title "Deploy failed: $SCAN_ID" \
-            --body "**Error:** $ERROR
-
-**Scan ID:** \`$SCAN_ID\`
-**Run:** ${{ github.run_id }}
-
-Review the manifest and re-trigger manually after resolving the root cause." \
+            --body "$BODY" \
             --label "deploy-failure"
