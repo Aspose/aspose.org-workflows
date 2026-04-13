@@ -47,7 +47,7 @@ def query_run_status(workflow_filename, trigger_time):
     Returns (status, run_id, conclusion) or ("not_found", None, None).
     """
     result = subprocess.run(
-        ["gh", "run", "list", f"--workflow={workflow_filename}", "--limit", "5",
+        ["gh", "run", "list", f"--workflow={workflow_filename}", "--limit", "25",
          "--json", "status,conclusion,databaseId,createdAt"],
         capture_output=True, text=True,
     )
@@ -76,6 +76,17 @@ def check_timeout(trigger_time, timeout_minutes):
     return elapsed > timeout_minutes * 60
 
 
+def is_in_propagation_window(trigger_time, grace_minutes=3):
+    """
+    Return True if the run may not yet be visible in the GitHub API.
+    GitHub can take 30-60 seconds to reflect a newly triggered run in gh run list.
+    Treat not_found within the grace window as 'still propagating', not a timeout.
+    """
+    trigger_dt = datetime.fromisoformat(trigger_time.replace("Z", "+00:00"))
+    elapsed = (datetime.now(timezone.utc) - trigger_dt).total_seconds()
+    return elapsed < grace_minutes * 60
+
+
 def trigger_workflow(workflow_filename, environment):
     """Trigger a workflow via gh CLI. Returns trigger timestamp."""
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -96,6 +107,8 @@ def check_staging(manifest, timeout_minutes):
     """
     Check staging phase: verify staging runs and production-only runs.
     If all staging passes, trigger production for staged workflows.
+    Continues monitoring all in-flight workflows even when one fails —
+    state is only set to 'failed' after all staged workflows reach a terminal state.
     Returns True if manifest was modified.
     """
     now = datetime.now(timezone.utc)
@@ -105,13 +118,22 @@ def check_staging(manifest, timeout_minutes):
     prod_only = manifest.get("production_only_workflows", [])
 
     # Check staged workflows' staging runs
-    all_staging_done = True
+    all_staging_terminal = True
+    any_staging_failed = False
+    fail_error = None
+
     for entry in staged:
         if entry["staging_status"] == "success":
             continue
 
+        if entry["staging_status"] in ("failed", "timeout"):
+            # Already terminal from a previous check — track but keep iterating
+            any_staging_failed = True
+            fail_error = fail_error or f"Staging {entry['staging_status']}: {entry['workflow']}"
+            continue
+
         if entry["staging_status"] not in ("triggered",):
-            all_staging_done = False
+            all_staging_terminal = False
             continue
 
         status, run_id, conclusion = query_run_status(
@@ -126,32 +148,25 @@ def check_staging(manifest, timeout_minutes):
                 print(f"  STAGING PASSED: {entry['workflow']} (run {run_id})")
             else:
                 entry["staging_status"] = "failed"
-                manifest["state"] = "failed"
-                manifest["failed_at"] = now.isoformat()
-                manifest["error"] = f"Staging failed: {entry['workflow']} (conclusion: {conclusion})"
+                any_staging_failed = True
+                fail_error = fail_error or f"Staging failed: {entry['workflow']} (conclusion: {conclusion})"
                 print(f"  STAGING FAILED: {entry['workflow']} (run {run_id}, {conclusion})")
-                return True
-        elif status == "not_found" and check_timeout(entry["staging_trigger_time"], timeout_minutes):
-            entry["staging_status"] = "timeout"
-            manifest["state"] = "failed"
-            manifest["failed_at"] = now.isoformat()
-            manifest["error"] = f"Staging timeout: {entry['workflow']}"
-            print(f"  STAGING TIMEOUT: {entry['workflow']}")
-            changed = True
-            return True
+                # Continue — do not return early; check remaining staged workflows first
+        elif status == "not_found" and is_in_propagation_window(entry["staging_trigger_time"]):
+            print(f"  Run not yet visible for {entry['workflow']}, within 3-min grace window")
+            all_staging_terminal = False
         elif check_timeout(entry["staging_trigger_time"], timeout_minutes):
             entry["staging_status"] = "timeout"
-            manifest["state"] = "failed"
-            manifest["failed_at"] = now.isoformat()
-            manifest["error"] = f"Staging timeout: {entry['workflow']} (status: {status})"
+            any_staging_failed = True
+            fail_error = fail_error or f"Staging timeout: {entry['workflow']} (status: {status})"
             print(f"  STAGING TIMEOUT: {entry['workflow']} (still {status})")
             changed = True
-            return True
+            # Continue — do not return early
         else:
-            all_staging_done = False
+            all_staging_terminal = False
             print(f"  Staging in progress: {entry['workflow']} ({status})")
 
-    # Check production-only workflows (opportunistic — they're already running)
+    # Check production-only workflows (opportunistic — already running in production)
     for entry in prod_only:
         if entry["production_status"] in ("success", "failed", "timeout"):
             continue
@@ -171,24 +186,33 @@ def check_staging(manifest, timeout_minutes):
                 print(f"  PRODUCTION (direct) PASSED: {entry['workflow']} (run {run_id})")
             else:
                 entry["production_status"] = "failed"
-                manifest["state"] = "failed"
-                manifest["failed_at"] = now.isoformat()
-                manifest["error"] = f"Production failed: {entry['workflow']} (conclusion: {conclusion})"
                 print(f"  PRODUCTION (direct) FAILED: {entry['workflow']} (run {run_id}, {conclusion})")
-                return True
+                # Record outcome; final state decision is deferred to check_production
+        elif status == "not_found" and is_in_propagation_window(entry["production_trigger_time"]):
+            print(f"  Run not yet visible for {entry['workflow']} (production-only), within grace window")
         elif check_timeout(entry["production_trigger_time"], timeout_minutes):
             entry["production_status"] = "timeout"
-            manifest["state"] = "failed"
-            manifest["failed_at"] = now.isoformat()
-            manifest["error"] = f"Production timeout: {entry['workflow']}"
             print(f"  PRODUCTION (direct) TIMEOUT: {entry['workflow']}")
             changed = True
-            return True
         else:
             print(f"  Production (direct) in progress: {entry['workflow']} ({status})")
 
+    # After iterating all staged workflows, determine state transition
+    if any_staging_failed and all_staging_terminal:
+        # All staging runs are terminal and at least one failed — do not promote to production
+        manifest["state"] = "failed"
+        manifest["failed_at"] = now.isoformat()
+        manifest["error"] = fail_error
+        print(f"\n  Staging failed. State -> 'failed'. Error: {fail_error}")
+        changed = True
+        return changed
+    elif any_staging_failed and not all_staging_terminal:
+        # Some failed, some still running — stay in staging, keep monitoring
+        print("  Some staging workflows failed; others still in progress. Continuing to monitor.")
+        return changed
+
     # If all staging passed, trigger production for staged batch
-    if all_staging_done and staged:
+    if all_staging_terminal and staged and not any_staging_failed:
         print("\n  All staging runs passed. Triggering production for staged workflows...")
         trigger_failed = False
         for entry in staged:
@@ -211,16 +235,27 @@ def check_staging(manifest, timeout_minutes):
 
     # Edge case: no staged workflows at all (all are production-only)
     if not staged:
-        # Check if all production-only are done
-        all_prod_done = all(
-            e["production_status"] == "success" for e in prod_only
+        all_prod_terminal = all(
+            e["production_status"] in ("success", "failed", "timeout") for e in prod_only
         )
-        if all_prod_done and prod_only:
-            manifest["state"] = "completed"
-            manifest["completed_at"] = now.isoformat()
-            update_scan_state(manifest)
-            print("  All production-only workflows completed. State -> 'completed'.")
-            return True
+        if all_prod_terminal and prod_only:
+            any_prod_failed = any(e["production_status"] in ("failed", "timeout") for e in prod_only)
+            if any_prod_failed:
+                fail_msg = next(
+                    f"Production {e['production_status']}: {e['workflow']}"
+                    for e in prod_only if e["production_status"] in ("failed", "timeout")
+                )
+                manifest["state"] = "failed"
+                manifest["failed_at"] = now.isoformat()
+                manifest["error"] = fail_msg
+                print("  Production-only deploy failed. State -> 'failed'.")
+                return True
+            else:
+                manifest["state"] = "completed"
+                manifest["completed_at"] = now.isoformat()
+                update_scan_state(manifest)
+                print("  All production-only workflows completed. State -> 'completed'.")
+                return True
         elif not prod_only:
             # Nothing to do
             manifest["state"] = "completed"
@@ -233,10 +268,14 @@ def check_staging(manifest, timeout_minutes):
 def check_production(manifest, timeout_minutes):
     """
     Check production phase: verify all production runs (staged + production-only).
+    Continues monitoring all in-flight workflows even when one fails —
+    state is only set to 'failed' after all workflows reach a terminal state.
     Returns True if manifest was modified.
     """
     now = datetime.now(timezone.utc)
     changed = False
+    any_failed = False
+    fail_error = None
 
     all_workflows = manifest.get("staged_workflows", []) + manifest.get("production_only_workflows", [])
     all_done = True
@@ -246,13 +285,10 @@ def check_production(manifest, timeout_minutes):
             continue
 
         if entry["production_status"] in ("failed", "timeout"):
-            # Already failed — should have been caught, but ensure state is failed
-            if manifest["state"] != "failed":
-                manifest["state"] = "failed"
-                manifest["failed_at"] = now.isoformat()
-                manifest["error"] = f"Production {entry['production_status']}: {entry['workflow']}"
-                return True
-            return changed
+            # Already terminal from a previous check — track but keep iterating
+            any_failed = True
+            fail_error = fail_error or f"Production {entry['production_status']}: {entry['workflow']}"
+            continue
 
         if entry["production_status"] != "triggered":
             all_done = False
@@ -270,24 +306,36 @@ def check_production(manifest, timeout_minutes):
                 print(f"  PRODUCTION PASSED: {entry['workflow']} (run {run_id})")
             else:
                 entry["production_status"] = "failed"
-                manifest["state"] = "failed"
-                manifest["failed_at"] = now.isoformat()
-                manifest["error"] = f"Production failed: {entry['workflow']} (conclusion: {conclusion})"
+                any_failed = True
+                fail_error = fail_error or f"Production failed: {entry['workflow']} (conclusion: {conclusion})"
                 print(f"  PRODUCTION FAILED: {entry['workflow']} (run {run_id}, {conclusion})")
-                return True
+                # Continue — do not return early; check remaining workflows first
+        elif status == "not_found" and is_in_propagation_window(entry["production_trigger_time"]):
+            print(f"  Run not yet visible for {entry['workflow']}, within 3-min grace window")
+            all_done = False
         elif check_timeout(entry["production_trigger_time"], timeout_minutes):
             entry["production_status"] = "timeout"
-            manifest["state"] = "failed"
-            manifest["failed_at"] = now.isoformat()
-            manifest["error"] = f"Production timeout: {entry['workflow']}"
+            any_failed = True
+            fail_error = fail_error or f"Production timeout: {entry['workflow']}"
             print(f"  PRODUCTION TIMEOUT: {entry['workflow']}")
             changed = True
-            return True
+            # Continue — do not return early
         else:
             all_done = False
             print(f"  Production in progress: {entry['workflow']} ({status})")
 
-    if all_done:
+    # After iterating all workflows, determine final state
+    if any_failed and all_done:
+        # All workflows are terminal; at least one failed
+        manifest["state"] = "failed"
+        manifest["failed_at"] = now.isoformat()
+        manifest["error"] = fail_error
+        print(f"\n  Deploy failed. State -> 'failed'. Error: {fail_error}")
+        changed = True
+    elif any_failed and not all_done:
+        # Some failed, some still running — stay in production, keep monitoring
+        print("  Some production workflows failed; others still in progress. Continuing to monitor.")
+    elif all_done and not any_failed:
         manifest["state"] = "completed"
         manifest["completed_at"] = now.isoformat()
         update_scan_state(manifest)
@@ -323,6 +371,7 @@ def main():
     config = load_json(config_path)
 
     state = manifest.get("state", "pending")
+    initial_state = state
     timeout_minutes = config.get("workflow_timeout_minutes", 120)
 
     print(f"Deploy status check — current state: {state}")
@@ -343,8 +392,12 @@ def main():
 
     if changed:
         save_json(manifest_path, manifest)
-        print(f"\nManifest updated. New state: {manifest['state']}")
+        final_state = manifest["state"]
+        print(f"\nManifest updated. New state: {final_state}")
         write_github_output("manifest_changed", "true")
+        # Emit deploy_failed only when THIS run caused the transition to failed
+        if initial_state != "failed" and final_state == "failed":
+            write_github_output("deploy_failed", "true")
     else:
         print("\nNo status changes detected.")
         write_github_output("manifest_changed", "false")

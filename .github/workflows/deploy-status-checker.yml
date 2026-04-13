@@ -1,13 +1,30 @@
 name: Deploy Status Checker
 
 on:
+  workflow_run:
+    workflows:
+      - "docs.aspose.org"
+      - "kb.aspose.org"
+      - "products.aspose.org"
+      - "reference.aspose.org"
+      - "websites.aspose.org"
+      - "www.aspose.org"
+      - "blog.aspose.org"
+    types:
+      - completed
+    branches:
+      - main
   schedule:
-    - cron: '*/15 * * * *'  # Every 15 minutes
+    - cron: '0 * * * *'  # Hourly safety net — catches missed events and timeout scenarios
   workflow_dispatch: {}  # Manual trigger for debugging
 
 concurrency:
-  group: deploy-status-checker
+  group: deploy-manifest-writer
   cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
 
 jobs:
   check:
@@ -44,3 +61,20 @@ jobs:
           git diff --cached --quiet || git commit -m "Deploy status: $STATE $(date -u +%Y-%m-%d)"
           git pull --rebase
           git push
+
+      - name: Create failure issue
+        if: steps.check.outputs.deploy_failed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ERROR=$(python3 -c "import json; m=json.load(open('scripts/deploy/deploy_manifest.json')); print(m.get('error','Unknown'))")
+          SCAN_ID=$(python3 -c "import json; m=json.load(open('scripts/deploy/deploy_manifest.json')); print(m.get('scan_id','unknown'))")
+          gh issue create \
+            --title "Deploy failed: $SCAN_ID" \
+            --body "**Error:** $ERROR
+
+**Scan ID:** \`$SCAN_ID\`
+**Run:** ${{ github.run_id }}
+
+Review the manifest and re-trigger manually after resolving the root cause." \
+            --label "deploy-failure"

@@ -11,6 +11,10 @@ on:
         default: false
         required: false
 
+concurrency:
+  group: deploy-manifest-writer
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
