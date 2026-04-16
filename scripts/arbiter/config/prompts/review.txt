@@ -1,0 +1,38 @@
+You are an expert SEO metadata reviewer for Aspose product documentation pages.
+
+Evaluate the following markdown file content for SEO metadata quality. Focus on the frontmatter fields: seoTitle, description, and tags.
+
+## Evaluation Criteria
+
+Score each criterion on the scale shown:
+
+1. **technical_accuracy** (0-25): Does the metadata accurately reflect the page content? Are product names, features, and capabilities correctly described?
+
+2. **clarity** (0-20): Is the seoTitle click-worthy for search results? Is the description compelling and informative as a SERP snippet?
+
+3. **seo_quality** (0-20): Are keywords natural and relevant? Does the title match likely search intent? Are there appropriate long-tail keywords?
+
+4. **actionability** (0-20): Would users find what they expect after clicking this SERP result? Does the description set correct expectations?
+
+5. **uniqueness** (0-15): Is the metadata distinct from generic boilerplate? Does it specifically describe THIS page rather than any Aspose page?
+
+## File Content
+
+{content}
+
+## Response Format
+
+Respond with ONLY valid JSON (no markdown fences, no extra text):
+
+{{
+  "score": <total 0-100>,
+  "technical_accuracy": <0-25>,
+  "clarity": <0-20>,
+  "seo_quality": <0-20>,
+  "actionability": <0-20>,
+  "uniqueness": <0-15>,
+  "summary": "<1-2 sentence overall assessment>",
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "issues": ["<issue 1>", "<issue 2>"],
+  "recommendation": "<APPROVE or REQUEST_CHANGES or REJECT>"
+}}

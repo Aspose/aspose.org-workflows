@@ -1,0 +1,47 @@
+github:
+  token: "${GITHUB_TOKEN}"
+
+metrics:
+  enabled: false
+  endpoint: "https://script.google.com/macros/s/AKfycbyCHwElrM6RcYLi0JNQAkJmzGrBjAhf28mKXVyub_6SdaZ2ITvzCwfM5xCLE7rmuxio/exec"
+  token: "lM6iU2mW0gV1eZ"
+  agent_name: "SEO PR Arbiter"
+  agent_owner: "Muhammad Muqarrab"
+  job_type: "pr_review"
+  item_name: "Pull Requests"
+  website_section: "SEO"
+
+gpt_oss:
+  endpoint: "${GPT_OSS_ENDPOINT}"
+  api_key: "${GPT_OSS_API_KEY}"
+  model: "gpt-4o-mini"
+  timeout: 120
+
+review:
+  checklist_path: "config/checklist.yaml"
+  pr_branch_prefix: "seo/"
+  auto_merge: false
+  pr_labels: []
+  post_review_comment: true
+  score_thresholds:
+    approve: 80
+    request_changes: 50
+  file_filter:
+    path_contains: null
+
+products:
+  aspose-org:
+    content_repo: "https://github.com/Aspose/aspose.org"
+    branch: "main"
+
+prompts:
+  review_pr: "config/prompts/review.txt"
+
+monitoring:
+  check_interval_hours: 4
+  stale_review_hours: 48
+
+logging:
+  level: "INFO"
+  dir: "logs"
+  rotation: "daily"

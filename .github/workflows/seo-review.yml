@@ -1,0 +1,42 @@
+name: SEO PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_prs:
+        description: "Max PRs to review"
+        default: "1"
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: scripts/arbiter
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+      GPT_OSS_ENDPOINT: ${{ secrets.GPT_OSS_ENDPOINT }}
+      GPT_OSS_API_KEY: ${{ secrets.GPT_OSS_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore state cache
+        uses: actions/cache@v4
+        with:
+          path: scripts/arbiter/data/state.json
+          key: arbiter-seo-state-${{ github.ref_name }}
+          restore-keys: |
+            arbiter-seo-state-
+
+      - name: Run arbiter
+        run: python -m src.main -p aspose-org -n ${{ inputs.max_prs }}

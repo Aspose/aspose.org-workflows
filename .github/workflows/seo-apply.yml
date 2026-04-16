@@ -71,6 +71,7 @@ jobs:
           retention-days: 14
 
       - name: Create pull request
+        id: create_pr
         if: inputs.dry_run == 'false'
         uses: peter-evans/create-pull-request@v6
         with:
@@ -89,3 +90,9 @@ jobs:
             Review `patches/seo/patch_manifest.json` for full change list.
           branch: seo/${{ inputs.artifact_run_id }}
           commit-message: 'chore(seo): apply SEO frontmatter improvements [batch: ${{ inputs.artifact_run_id }}]'
+
+      - name: Trigger PR Arbiter review
+        if: inputs.dry_run == 'false' && steps.create_pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+        run: gh workflow run seo-review.yml --repo Aspose/aspose.org-workflows

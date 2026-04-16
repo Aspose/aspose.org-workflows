@@ -1,0 +1,59 @@
+checks:
+  - id: frontmatter_present
+    description: "YAML frontmatter block exists"
+    weight: 10
+    type: required
+
+  - id: frontmatter_yaml_valid
+    description: "Frontmatter YAML parses without errors"
+    weight: 10
+    type: required
+
+  - id: seo_title_length
+    description: "seoTitle is 30-60 characters"
+    weight: 15
+    type: required
+
+  - id: description_length
+    description: "description is 50-160 characters"
+    weight: 15
+    type: required
+
+  - id: body_unchanged
+    description: "Only frontmatter fields modified"
+    weight: 15
+    type: required
+
+  - id: frontmatter_values_safe
+    description: "Values with colons properly quoted"
+    weight: 10
+    type: required
+
+  - id: no_keyword_stuffing
+    description: "No word repeated more than 2 times in title/description"
+    weight: 5
+    type: recommended
+
+  - id: tags_format_valid
+    description: "Tags: YAML list, 3-10 lowercase hyphenated entries"
+    weight: 5
+    type: recommended
+
+  - id: tags_relevance
+    description: "Tags include product name and action keyword"
+    weight: 5
+    type: recommended
+
+  - id: seo_title_has_brand
+    description: "seoTitle mentions Aspose or GroupDocs"
+    weight: 5
+    type: recommended
+
+  - id: description_has_call_to_action
+    description: "Description contains action verb"
+    weight: 5
+    type: recommended
+
+ai_evaluation:
+  enabled: true
+  weight: 20
