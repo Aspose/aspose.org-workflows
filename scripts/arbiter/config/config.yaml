@@ -14,7 +14,7 @@ metrics:
 gpt_oss:
   endpoint: "${GPT_OSS_ENDPOINT}"
   api_key: "${GPT_OSS_API_KEY}"
-  model: "gpt-4o-mini"
+  model: "gpt-oss"
   timeout: 120
 
 review:
