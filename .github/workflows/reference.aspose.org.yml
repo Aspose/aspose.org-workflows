@@ -58,6 +58,7 @@ jobs:
         run: cp -r llms-output/reference.aspose.org/. public/
 
       - name: Deploy reference.aspose.org to S3
+        if: github.event.inputs.environment == 'production'
         run: hugo deploy --config "./configs/reference.aspose.org.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
