@@ -37,12 +37,22 @@ jobs:
       - name: Build websites.aspose.org
         run: hugo --config "./configs/websites.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}"
 
-      - name: Deploy websites.aspose.org to S3
-        run: hugo deploy --config "./configs/websites.aspose.org.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      # S3 is optional under production policy. Bucket missing or unavailable
+      # emits a warning and continues — does not block Ceph production deploy.
+      - name: Deploy websites.aspose.org to S3 (optional)
+        uses: ./.github/actions/optional-s3-deploy
+        with:
+          site: websites.aspose.org
+          config: ./configs/websites.aspose.org.toml
+          target: ${{ github.event.inputs.environment }}
+          environment: ${{ github.event.inputs.environment }}
+          invalidate-cdn: 'true'
+          max-deletes: '-1'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
 
+      # Ceph is the required production target. This step is a hard fail.
       - name: Deploy websites.aspose.org to Ceph
         if: github.event.inputs.environment == 'production'
         run: hugo deploy --config "./configs/websites.aspose.org.toml" --maxDeletes=-1 --target "production_ceph" --force

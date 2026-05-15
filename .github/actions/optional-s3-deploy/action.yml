@@ -1,0 +1,45 @@
+name: 'Optional S3 Deploy'
+description: >
+  Run hugo deploy for an S3 target that is optional under production policy.
+  Warns on failure and exits 0 so the workflow can continue to the required
+  Ceph production target. Never silently hides failures — emits a GitHub
+  warning annotation with exact site, target, environment, and error class.
+
+inputs:
+  site:
+    description: 'Site name, e.g. websites.aspose.org'
+    required: true
+  config:
+    description: 'Hugo config path, e.g. ./configs/websites.aspose.org.toml'
+    required: true
+  target:
+    description: 'Hugo deploy target name, e.g. staging or production'
+    required: true
+  environment:
+    description: 'Deploy environment label (staging or production)'
+    required: true
+  invalidate-cdn:
+    description: 'Pass --invalidateCDN to hugo deploy (true/false)'
+    default: 'true'
+  max-deletes:
+    description: 'Value for hugo deploy --maxDeletes'
+    default: '-1'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run optional S3 deploy
+      shell: bash
+      run: |
+        INVALIDATE_FLAG=""
+        if [ "${{ inputs.invalidate-cdn }}" = "true" ]; then
+          INVALIDATE_FLAG="--invalidate-cdn"
+        fi
+        python3 "${{ github.action_path }}/run_deploy_target.py" \
+          --site "${{ inputs.site }}" \
+          --config "${{ inputs.config }}" \
+          --target "${{ inputs.target }}" \
+          --required false \
+          --environment "${{ inputs.environment }}" \
+          --max-deletes "${{ inputs.max-deletes }}" \
+          $INVALIDATE_FLAG

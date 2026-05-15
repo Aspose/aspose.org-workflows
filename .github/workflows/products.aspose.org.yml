@@ -57,13 +57,23 @@ jobs:
       - name: Copy LLM files to Hugo output
         run: cp -r llms-output/products.aspose.org/. public/
 
-      - name: Deploy products.aspose.org to S3
+      # S3 is optional under production policy. Bucket missing or unavailable
+      # emits a warning and continues — does not block Ceph production deploy.
+      - name: Deploy products.aspose.org to S3 (optional)
         if: github.event.inputs.environment == 'production'
-        run: hugo deploy --config "./configs/products.aspose.org.toml" --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+        uses: ./.github/actions/optional-s3-deploy
+        with:
+          site: products.aspose.org
+          config: ./configs/products.aspose.org.toml
+          target: ${{ github.event.inputs.environment }}
+          environment: ${{ github.event.inputs.environment }}
+          invalidate-cdn: 'true'
+          max-deletes: '-1'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
 
+      # Ceph is the required production target. This step is a hard fail.
       - name: Deploy products.aspose.org to Ceph
         if: github.event.inputs.environment == 'production'
         run: hugo deploy --config "./configs/products.aspose.org.toml" --target "production_ceph" --force
