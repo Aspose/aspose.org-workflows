@@ -37,20 +37,19 @@ jobs:
       - name: Build websites.aspose.org
         run: hugo --config "./configs/websites.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}"
 
-      # S3 is optional under production policy. Bucket missing or unavailable
-      # emits a warning annotation and continues — never blocks Ceph production.
-      - name: Deploy websites.aspose.org to S3 (optional)
-        id: s3_deploy
-        continue-on-error: true
-        run: hugo deploy --config "./configs/websites.aspose.org.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
-
-      - name: Warn on optional S3 deploy failure
-        if: steps.s3_deploy.outcome == 'failure'
-        run: |
-          echo "::warning title=Optional S3 target unavailable::websites.aspose.org ${{ github.event.inputs.environment }} S3 deploy failed (bucket missing or access denied). S3 is optional — Ceph production is the required target. Continuing pipeline."
+      # S3/CloudFront disabled — sites are served exclusively via Bunny CDN + Ceph.
+      # - name: Deploy websites.aspose.org to S3 (optional)
+      #   id: s3_deploy
+      #   continue-on-error: true
+      #   run: hugo deploy --config "./configs/websites.aspose.org.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
+      #   env:
+      #     AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
+      #     AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+      #
+      # - name: Warn on optional S3 deploy failure
+      #   if: steps.s3_deploy.outcome == 'failure'
+      #   run: |
+      #     echo "::warning title=Optional S3 target unavailable::websites.aspose.org S3 deploy failed."
 
       # Ceph is the required production target. This step is a hard fail.
       - name: Deploy websites.aspose.org to Ceph
