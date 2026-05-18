@@ -45,3 +45,9 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+      - name: Purge CDN cache
+        if: github.event.inputs.environment == 'production'
+        shell: bash
+        run: |
+          curl -siG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
