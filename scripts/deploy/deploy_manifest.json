@@ -4,7 +4,7 @@
   "previous_sha": "c39d5ab8a438d54e79dff73950eb5bfac96f9319",
   "detected_at": "2026-05-24T07:21:05.927603+00:00",
   "global_change": false,
-  "state": "production",
+  "state": "completed",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
@@ -12,8 +12,8 @@
       "staging_run_id": 26355020274,
       "staging_status": "success",
       "production_trigger_time": "2026-05-24T09:18:53Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 26357383147,
+      "production_status": "success"
     },
     {
       "workflow": "kb.aspose.org.yml",
@@ -21,8 +21,8 @@
       "staging_run_id": 26355022513,
       "staging_status": "success",
       "production_trigger_time": "2026-05-24T09:18:59Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 26357385220,
+      "production_status": "success"
     },
     {
       "workflow": "products.aspose.org.yml",
@@ -30,8 +30,8 @@
       "staging_run_id": 26355024636,
       "staging_status": "success",
       "production_trigger_time": "2026-05-24T09:19:05Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 26357387449,
+      "production_status": "success"
     },
     {
       "workflow": "reference.aspose.org.yml",
@@ -39,8 +39,8 @@
       "staging_run_id": 26355026817,
       "staging_status": "success",
       "production_trigger_time": "2026-05-24T09:19:11Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 26357389706,
+      "production_status": "success"
     },
     {
       "workflow": "websites.aspose.org.yml",
@@ -48,8 +48,8 @@
       "staging_run_id": 26355028960,
       "staging_status": "success",
       "production_trigger_time": "2026-05-24T09:19:18Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 26357391815,
+      "production_status": "success"
     }
   ],
   "production_only_workflows": [
@@ -60,7 +60,7 @@
       "production_status": "success"
     }
   ],
-  "completed_at": null,
+  "completed_at": "2026-05-24T11:12:35.155994+00:00",
   "failed_at": null,
   "error": null
 }
