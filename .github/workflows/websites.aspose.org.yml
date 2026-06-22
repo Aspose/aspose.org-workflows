@@ -47,7 +47,13 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
       - name: Purge CDN cache
+        id: cdn_purge
         if: github.event.inputs.environment == 'production'
+        continue-on-error: true
         shell: bash
         run: |
-          curl -siG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
+          curl -iG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
+
+      - name: Warn on CDN purge failure
+        if: steps.cdn_purge.outcome == 'failure'
+        run: echo "::warning title=CDN purge failed::websites.aspose.org CDN cache purge failed — stale content may be served until TTL expires."
