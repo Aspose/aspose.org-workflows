@@ -25,6 +25,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.REPO_TOKEN }}
 
+      - name: Pull latest commits
+        run: git pull --rebase
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
