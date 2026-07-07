@@ -7,8 +7,64 @@ on:
         type: environment
         default: staging
         required: true
+
 jobs:
-  deploy:
+  deploy-family:
+    name: "deploy / ${{ matrix.segment }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        segment: [3d, cells, email, font, note, page, pdf, slides, tex, words]
+    steps:
+      - name: Checkout site repo
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Hugo
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          sudo mv hugo /usr/local/bin/hugo
+          hugo version
+
+      - name: Determine Base URL
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build ${{ matrix.segment }} (all 37 languages)
+        run: |
+          hugo --config "./configs/reference.aspose.org.toml" \
+               --renderSegments "${{ matrix.segment }}" \
+               -b "${{ env.url }}" \
+               --cleanDestinationDir --minify \
+               --templateMetrics --templateMetricsHints \
+               --enableGitInfo \
+               --environment "${{ github.event.inputs.environment }}"
+
+      - name: Deploy ${{ matrix.segment }} to Ceph
+        if: github.event.inputs.environment == 'production'
+        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "production_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+  deploy-shared:
+    name: "deploy / shared (home + 404 + llms)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout site repo
@@ -42,8 +98,14 @@ jobs:
             echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
           fi
 
-      - name: Build reference.aspose.org
-        run: hugo --config "./configs/reference.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}"
+      - name: Build shared segment (home pages + 404, all languages)
+        run: |
+          hugo --config "./configs/reference.aspose.org.toml" \
+               --renderSegments "shared" \
+               -b "${{ env.url }}" \
+               --cleanDestinationDir --minify \
+               --enableGitInfo \
+               --environment "${{ github.event.inputs.environment }}"
 
       - name: Generate LLM files
         run: |
@@ -54,26 +116,38 @@ jobs:
             --mapping scripts/generator/mapping.json \
             --clean-output
 
-      - name: Copy LLM files to Hugo output
+      - name: Copy LLM files into Hugo output
         run: cp -r llms-output/reference.aspose.org/. public/
 
-      # Ceph is the required production target. This step is a hard fail.
-      - name: Deploy reference.aspose.org to Ceph
+      - name: Deploy shared + LLM files to Ceph
         if: github.event.inputs.environment == 'production'
-        run: hugo deploy --config "./configs/reference.aspose.org.toml" --target "production_ceph" --force
+        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "production_ceph" \
+                      --force \
+                      --maxDeletes 0
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
+  purge-cdn:
+    name: Purge CDN cache
+    needs: [deploy-family, deploy-shared]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.environment == 'production'
+    steps:
       - name: Purge CDN cache
         id: cdn_purge
-        if: github.event.inputs.environment == 'production'
         continue-on-error: true
         shell: bash
         run: |
-          curl -iG -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" --data-urlencode "url=${{ env.url }}/*" "https://api.dynabic.com/bn/purge?async=true"
+          curl -iG \
+            -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" \
+            --data-urlencode "url=https://reference.aspose.org/*" \
+            "https://api.dynabic.com/bn/purge?async=true"
 
       - name: Warn on CDN purge failure
         if: steps.cdn_purge.outcome == 'failure'
-        run: echo "::warning title=CDN purge failed::reference.aspose.org CDN cache purge failed — stale content may be served until TTL expires."
+        run: echo "::warning title=CDN purge failed::reference.aspose.org CDN cache purge failed"
