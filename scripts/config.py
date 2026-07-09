@@ -25,10 +25,10 @@ SITE_FAMILIES = {
         "ocr", "omr", "page", "pdf", "psd", "pub", "slides", "svg",
         "tasks", "tex", "words", "zip",
     ],
-    "docs.aspose.org":      ["3d", "cells", "note", "slides"],
-    "kb.aspose.org":         ["3d", "cells", "note", "slides"],
-    "reference.aspose.org":  ["3d", "cells", "note", "slides"],
-    "blog.aspose.org":       ["3d", "cells", "email", "note", "slides"],
+    "docs.aspose.org":      ["3d", "barcode", "cells", "note", "slides"],
+    "kb.aspose.org":        ["3d", "barcode", "cells", "note", "slides"],
+    "reference.aspose.org": ["3d", "barcode", "cells", "note", "slides"],
+    "blog.aspose.org":      ["3d", "barcode", "cells", "email", "note", "slides"],
 }
 
 # Union of all families

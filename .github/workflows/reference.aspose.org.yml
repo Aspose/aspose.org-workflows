@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        segment: [3d, cells, email, font, note, page, pdf, slides, tex, words]
+        segment: [3d, barcode, cells, email, font, note, page, pdf, slides, tex, words]
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
