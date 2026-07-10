@@ -15,14 +15,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        segment: [3d, barcode, cells, email, font, note, page, pdf, slides, tex, words]
+        # pdf removed — built by deploy-pdf (split by platform to avoid disk exhaustion)
+        segment: [3d, barcode, cells, email, font, note, page, slides, tex, words]
     steps:
-      - name: Checkout site repo
+      - name: Checkout site repo (sparse)
         uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            configs
+            layouts
+            themes
+            assets
+            static
+            data
+            i18n
+            content/reference.aspose.org/*/${{ matrix.segment }}
+          sparse-checkout-cone-mode: false
 
       - name: Setup Hugo
         run: |
@@ -41,16 +53,91 @@ jobs:
           fi
 
       - name: Build ${{ matrix.segment }} (all 37 languages)
+        env:
+          HUGO_ENABLEGITINFO: "false"
         run: |
           hugo --config "./configs/reference.aspose.org.toml" \
                --renderSegments "${{ matrix.segment }}" \
                -b "${{ env.url }}" \
                --cleanDestinationDir --minify \
                --templateMetrics --templateMetricsHints \
-               --enableGitInfo \
                --environment "${{ github.event.inputs.environment }}"
 
       - name: Deploy ${{ matrix.segment }} to Ceph
+        if: github.event.inputs.environment == 'production'
+        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "production_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+  deploy-pdf:
+    name: "deploy / pdf-${{ matrix.platform }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split pdf by platform: net (808 EN pages), java (552), go (145).
+        # Each builds all 37 locales together (Hugo multilingual requirement).
+        # Per-job output: ~3 GB, ~2 GB, ~0.5 GB — all fit on ubuntu-latest runners.
+        platform: [net, java, go]
+    steps:
+      - name: Checkout site repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            configs
+            layouts
+            themes
+            assets
+            static
+            data
+            i18n
+            content/reference.aspose.org/*/pdf/_index*.md
+            content/reference.aspose.org/*/pdf/${{ matrix.platform }}
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Hugo
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          sudo mv hugo /usr/local/bin/hugo
+          hugo version
+
+      - name: Determine Base URL
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build pdf-${{ matrix.platform }} (all 37 languages)
+        env:
+          HUGO_ENABLEGITINFO: "false"
+          # Disable FlexSearch index generation — search-data.json aggregates ALL .Site.Pages
+          # regardless of --renderSegments; with 37 locales × all families the Turkish locale
+          # exceeds Hugo's 3072-page slice capacity. Search is built by deploy-family jobs instead.
+          HUGO_PARAMS_SEARCH_ENABLE: "false"
+        run: |
+          hugo --config "./configs/reference.aspose.org.toml" \
+               --renderSegments "pdf-${{ matrix.platform }}" \
+               -b "${{ env.url }}" \
+               --cleanDestinationDir --minify \
+               --templateMetrics --templateMetricsHints \
+               --environment "${{ github.event.inputs.environment }}"
+
+      - name: Deploy pdf-${{ matrix.platform }} to Ceph
         if: github.event.inputs.environment == 'production'
         # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
         run: |
@@ -67,12 +154,24 @@ jobs:
     name: "deploy / shared (home + 404 + llms)"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout site repo
+      - name: Checkout site repo (sparse)
         uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            configs
+            layouts
+            themes
+            assets
+            static
+            data
+            i18n
+            scripts/generator
+            content/reference.aspose.org/*/_index.md
+          sparse-checkout-cone-mode: false
 
       - name: Setup Hugo
         run: |
@@ -99,17 +198,18 @@ jobs:
           fi
 
       - name: Build shared segment (home pages + 404, all languages)
+        env:
+          HUGO_ENABLEGITINFO: "false"
         run: |
           hugo --config "./configs/reference.aspose.org.toml" \
                --renderSegments "shared" \
                -b "${{ env.url }}" \
                --cleanDestinationDir --minify \
-               --enableGitInfo \
                --environment "${{ github.event.inputs.environment }}"
 
       - name: Generate LLM files
         run: |
-          python scripts/generator/llms-generator.py \
+          python3 scripts/generator/llms-generator.py \
             --input content \
             --output llms-output \
             --subdomain reference.aspose.org \
@@ -134,7 +234,7 @@ jobs:
 
   purge-cdn:
     name: Purge CDN cache
-    needs: [deploy-family, deploy-shared]
+    needs: [deploy-family, deploy-pdf, deploy-shared]
     runs-on: ubuntu-latest
     if: github.event.inputs.environment == 'production'
     steps:
