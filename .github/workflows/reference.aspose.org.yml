@@ -170,6 +170,7 @@ jobs:
             data
             i18n
             scripts/generator
+            scripts/pipeline/core
             content/reference.aspose.org/*/_index.md
           sparse-checkout-cone-mode: false
 
