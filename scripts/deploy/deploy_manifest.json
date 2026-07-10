@@ -4,7 +4,7 @@
   "previous_sha": "5e5d2672b80fffa68d25c788e335209a668c9ee8",
   "detected_at": "2026-07-10T07:35:16.177005+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "failed",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
@@ -36,8 +36,8 @@
     {
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-07-10T07:35:45Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 29084102297,
+      "staging_status": "failed",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -61,6 +61,6 @@
     }
   ],
   "completed_at": null,
-  "failed_at": null,
-  "error": null
+  "failed_at": "2026-07-10T10:05:15.070612+00:00",
+  "error": "Staging failed: reference.aspose.org.yml (conclusion: failure)"
 }
