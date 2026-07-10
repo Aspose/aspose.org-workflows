@@ -15,8 +15,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pdf removed — built by deploy-pdf (split by platform to avoid disk exhaustion)
-        segment: [3d, barcode, cells, email, font, note, page, slides, tex, words]
+        # pdf and 3d removed� built by deploy-pdf (split by platform to avoid disk exhaustion)
+        # 3d removed -- built by deploy-3d (split by platform to avoid disk exhaustion)
+        segment: [barcode, cells, email, font, note, page, slides, tex, words]
     steps:
       - name: Checkout site repo (sparse)
         uses: actions/checkout@v4
@@ -84,7 +85,7 @@ jobs:
       matrix:
         # Split pdf by platform: net (808 EN pages), java (552), go (145).
         # Each builds all 37 locales together (Hugo multilingual requirement).
-        # Per-job output: ~3 GB, ~2 GB, ~0.5 GB — all fit on ubuntu-latest runners.
+        # Per-job output: ~3 GB, ~2 GB, ~0.5 GB � all fit on ubuntu-latest runners.
         platform: [net, java, go]
     steps:
       - name: Checkout site repo (sparse)
@@ -125,8 +126,8 @@ jobs:
       - name: Build pdf-${{ matrix.platform }} (all 37 languages)
         env:
           HUGO_ENABLEGITINFO: "false"
-          # Disable FlexSearch index generation — search-data.json aggregates ALL .Site.Pages
-          # regardless of --renderSegments; with 37 locales × all families the Turkish locale
+          # Disable FlexSearch index generation � search-data.json aggregates ALL .Site.Pages
+          # regardless of --renderSegments; with 37 locales � all families the Turkish locale
           # exceeds Hugo's 3072-page slice capacity. Search is built by deploy-family jobs instead.
           HUGO_PARAMS_SEARCH_ENABLE: "false"
         run: |
@@ -140,6 +141,76 @@ jobs:
       - name: Deploy pdf-${{ matrix.platform }} to Ceph
         if: github.event.inputs.environment == 'production'
         # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "production_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+  deploy-3d:
+    name: "deploy / 3d-${{ matrix.platform }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split 3d by platform: python (120 EN), typescript (143), net (201), java (215).
+        # Each builds all 37 locales together (Hugo multilingual requirement).
+        # Avoids disk exhaustion on GHA runners (25,123 total pages with 37 locales).
+        platform: [python, typescript, net, java]
+    steps:
+      - name: Checkout site repo (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            configs
+            layouts
+            themes
+            assets
+            static
+            data
+            i18n
+            content/reference.aspose.org/*/3d/_index*.md
+            content/reference.aspose.org/*/3d/${{ matrix.platform }}
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Hugo
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          sudo mv hugo /usr/local/bin/hugo
+          hugo version
+
+      - name: Determine Base URL
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build 3d-${{ matrix.platform }} (all 37 languages)
+        env:
+          HUGO_ENABLEGITINFO: "false"
+          HUGO_PARAMS_SEARCH_ENABLE: "false"
+        run: |
+          hugo --config "./configs/reference.aspose.org.toml" \
+               --renderSegments "3d-${{ matrix.platform }}" \
+               -b "${{ env.url }}" \
+               --cleanDestinationDir --minify \
+               --templateMetrics --templateMetricsHints \
+               --environment "${{ github.event.inputs.environment }}"
+
+      - name: Deploy 3d-${{ matrix.platform }} to Ceph
+        if: github.event.inputs.environment == 'production'
         run: |
           hugo deploy --config "./configs/reference.aspose.org.toml" \
                       --target "production_ceph" \
@@ -235,7 +306,7 @@ jobs:
 
   purge-cdn:
     name: Purge CDN cache
-    needs: [deploy-family, deploy-pdf, deploy-shared]
+    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared]
     runs-on: ubuntu-latest
     if: github.event.inputs.environment == 'production'
     steps:
