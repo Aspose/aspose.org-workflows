@@ -34,6 +34,8 @@ jobs:
             static
             data
             i18n
+            content/reference.aspose.org/*/*/_index.md
+            content/reference.aspose.org/*/*/*/_index.md
             content/reference.aspose.org/*/${{ matrix.segment }}
           sparse-checkout-cone-mode: false
 
@@ -103,6 +105,8 @@ jobs:
             static
             data
             i18n
+            content/reference.aspose.org/*/*/_index.md
+            content/reference.aspose.org/*/*/*/_index.md
             content/reference.aspose.org/*/pdf/_index*.md
             content/reference.aspose.org/*/pdf/${{ matrix.platform }}
           sparse-checkout-cone-mode: false
@@ -177,6 +181,8 @@ jobs:
             static
             data
             i18n
+            content/reference.aspose.org/*/*/_index.md
+            content/reference.aspose.org/*/*/*/_index.md
             content/reference.aspose.org/*/3d/_index*.md
             content/reference.aspose.org/*/3d/${{ matrix.platform }}
           sparse-checkout-cone-mode: false
@@ -243,6 +249,8 @@ jobs:
             scripts/generator
             scripts/pipeline/core
             content/reference.aspose.org/*/_index.md
+            content/reference.aspose.org/*/*/_index.md
+            content/reference.aspose.org/*/*/*/_index.md
           sparse-checkout-cone-mode: false
 
       - name: Setup Hugo
