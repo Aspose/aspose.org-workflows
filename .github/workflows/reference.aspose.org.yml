@@ -312,9 +312,81 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
+  deploy-sitemap:
+    name: "deploy / sitemap (all families + all 37 locales)"
+    runs-on: ubuntu-latest
+    # Runs after all content jobs so the sitemap only advertises URLs that are already live.
+    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared]
+    steps:
+      - name: Checkout site repo (sparse -- ALL reference content)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          filter: blob:none
+          # Full content checkout (every family, every locale). The sitemap segment
+          # renders ONLY the per-language sitemaps + root sitemapindex (no HTML), so the
+          # page graph must contain the whole site to be complete. Source markdown only --
+          # blob:none keeps this cheap; no HTML is written so there is no disk-exhaustion risk.
+          sparse-checkout: |
+            configs
+            layouts
+            themes
+            assets
+            static
+            data
+            i18n
+            content/reference.aspose.org
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Hugo
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
+          sudo mv hugo /usr/local/bin/hugo
+          hugo version
+
+      - name: Determine Base URL
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build sitemaps (sitemapindex + one urlset per language, no HTML)
+        env:
+          HUGO_ENABLEGITINFO: "false"
+          # search-data.json aggregates ALL .Site.Pages regardless of segment and overflows
+          # Hugo's 3072-page slice on some locales; the sitemap segment does not need it.
+          HUGO_PARAMS_SEARCH_ENABLE: "false"
+        run: |
+          hugo --config "./configs/reference.aspose.org.toml" \
+               --renderSegments "sitemap" \
+               -b "${{ env.url }}" \
+               --cleanDestinationDir --minify \
+               --environment "${{ github.event.inputs.environment }}"
+
+      - name: Deploy sitemaps to Ceph
+        if: github.event.inputs.environment == 'production'
+        # --maxDeletes 0 = upload-only. This is the ONLY job that writes sitemap.xml /
+        # <lang>/sitemap.xml, so there is no cross-job overwrite race; it replaces the
+        # stale pre-split root sitemap with a complete sitemapindex.
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "production_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
   purge-cdn:
     name: Purge CDN cache
-    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared]
+    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared, deploy-sitemap]
     runs-on: ubuntu-latest
     if: github.event.inputs.environment == 'production'
     steps:
