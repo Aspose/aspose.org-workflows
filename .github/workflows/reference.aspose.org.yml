@@ -153,12 +153,21 @@ jobs:
         run: |
           set -euo pipefail
           fam='${{ matrix.family }}'
-          # Every rendered index.html must belong to this shard's family (locale-prefixed or root).
-          leaked=$(find public -name 'index.html' -printf '%P\n' \
-            | awk -F/ '{ seg = ($1 ~ /^[a-z]{2}(-[a-z]+)?$/ && NF > 1) ? $2 : $1; print seg }' \
-            | sort -u | grep -vx "$fam" || true)
-          if [ -n "$leaked" ]; then
-            echo "::error title=Segment leak::rendered HTML outside $fam: $leaked"
+          # Every rendered index.html must belong to this shard's family (locale-prefixed
+          # or root) -- EXCEPT alias redirect stubs: pages may declare legacy aliases
+          # (e.g. /reference/email/...) and Hugo emits meta-refresh stubs at those paths.
+          # A stub contains http-equiv=refresh; anything else outside the family is a leak.
+          leaked=$(find public -name 'index.html' | sed 's#^public/##' | awk -F/ '{ seg = ($1 ~ /^[a-z]{2}(-[a-z]+)?$/ && NF > 1) ? $2 : $1; print seg }' | sort -u | grep -vx "$fam" || true)
+          real_leak=""
+          for seg in $leaked; do
+            if find "public/$seg" "public"/*/"$seg" -name 'index.html' 2>/dev/null | head -200 | xargs -r grep -L 'http-equiv="refresh"' | grep -q .; then
+              real_leak="$real_leak $seg"
+            else
+              echo "note: '$seg' contains only alias redirect stubs (legacy aliases) -- allowed"
+            fi
+          done
+          if [ -n "$real_leak" ]; then
+            echo "::error title=Segment leak::rendered non-alias HTML outside $fam:$real_leak"
             exit 1
           fi
           # A shard that rendered nothing must never silently "succeed" (bad synthesized
