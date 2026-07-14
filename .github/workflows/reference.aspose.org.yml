@@ -297,7 +297,10 @@ jobs:
         with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
-          fetch-depth: 1
+          # Full history: sitemap <lastmod> comes from per-file git commit dates
+          # (enableGitInfo). kb's workflow does the same; commit dates are SHA-stable
+          # so rerun determinism is preserved (verified locally: 2 builds byte-identical).
+          fetch-depth: 0
           filter: blob:none
           sparse-checkout: |
             configs
@@ -328,7 +331,6 @@ jobs:
 
       - name: Build sitemaps (sitemapindex + one urlset per language, no HTML)
         env:
-          HUGO_ENABLEGITINFO: "false"
           # Full-graph build: the FlexSearch template overflows on the whole-site page
           # collection (slice bounds error, reproduced locally 2026-07-14). No HTML renders
           # in this segment anyway, so search assets must stay off here.
