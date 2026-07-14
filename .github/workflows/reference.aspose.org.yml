@@ -8,18 +8,74 @@ on:
         default: staging
         required: true
 
+# Two concurrent dispatches would interleave uploads into the shared bucket
+# (last-writer-wins per key). Queue runs per environment instead.
+concurrency:
+  group: reference-aspose-org-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
 jobs:
-  deploy-family:
-    name: "deploy / ${{ matrix.segment }}"
+  discover:
+    name: "discover shards"
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Checkout site repo (sparse -- en content tree + configs)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            configs
+            content/reference.aspose.org/en
+          sparse-checkout-cone-mode: false
+
+      - name: Generate shard matrix from content tree (no hardcoded lists)
+        id: gen
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix=$(find content/reference.aspose.org/en -mindepth 2 -maxdepth 2 -type d \
+            | sed 's#.*/en/##' | sort \
+            | jq -R 'split("/") | {family: .[0], platform: .[1]}' \
+            | jq -sc '{include: .}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Discovered shards:"
+          echo "$matrix" | jq -r '.include[] | "\(.family)/\(.platform)"'
+
+      - name: Size-guard (fail fast if any shard exceeds the runner budget)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # rendered pages per shard = en leaf pages x locale count (both derived, not hardcoded)
+          BUDGET=33000   # above proven-safe pdf/net (~30k), below the ~40k monolithic slides failure
+          locales=$(grep -cE '^\s*\[languages\.[a-z]+\]' configs/reference.aspose.org.toml)
+          echo "locales=$locales budget=$BUDGET"
+          fail=0
+          while IFS=/ read -r fam plat; do
+            pages=$(find "content/reference.aspose.org/en/$fam/$plat" -name '*.md' ! -name '_index.md' | wc -l)
+            rendered=$(( pages * locales ))
+            printf '%-10s %-12s pages=%-5s rendered=%s\n' "$fam" "$plat" "$pages" "$rendered"
+            if [ "$rendered" -gt "$BUDGET" ]; then
+              echo "::error title=Shard over budget::$fam/$plat projects $rendered rendered pages > $BUDGET. Enable locale-sharding for this shard (see plan zesty-whistling-hopper §5.1)."
+              fail=1
+            fi
+          done < <(find content/reference.aspose.org/en -mindepth 2 -maxdepth 2 -type d | sed 's#.*/en/##' | sort)
+          exit $fail
+
+  deploy-content:
+    name: "deploy / ${{ matrix.family }}-${{ matrix.platform }}"
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        # pdf and 3d removed� built by deploy-pdf (split by platform to avoid disk exhaustion)
-        # 3d removed -- built by deploy-3d (split by platform to avoid disk exhaustion)
-        segment: [barcode, cells, email, font, note, page, slides, tex, words]
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      - name: Checkout site repo (sparse)
+      - name: Checkout site repo (sparse -- one shard + nav indexes)
         uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
@@ -36,7 +92,8 @@ jobs:
             i18n
             content/reference.aspose.org/*/*/_index.md
             content/reference.aspose.org/*/*/*/_index.md
-            content/reference.aspose.org/*/${{ matrix.segment }}
+            content/reference.aspose.org/*/${{ matrix.family }}/_index*.md
+            content/reference.aspose.org/*/${{ matrix.family }}/${{ matrix.platform }}
           sparse-checkout-cone-mode: false
 
       - name: Setup Hugo
@@ -55,170 +112,74 @@ jobs:
             echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
           fi
 
-      - name: Build ${{ matrix.segment }} (all 37 languages)
+      - name: Synthesize shard segment config
+        shell: bash
+        # Hugo's multi --config merge silently DROPS [segments] from overlay files, and an
+        # unknown --renderSegments name fails OPEN (renders everything). So we concatenate
+        # into one file and verify the segment exists before building.
+        run: |
+          set -euo pipefail
+          fam='${{ matrix.family }}'; plat='${{ matrix.platform }}'
+          cp configs/reference.aspose.org.toml "$RUNNER_TEMP/job.toml"
+          {
+            printf '\n[[segments.target.includes]]\n'
+            printf '  path = "{/%s,/%s/%s,/%s/%s/**}"\n' "$fam" "$fam" "$plat" "$fam" "$plat"
+          } >> "$RUNNER_TEMP/job.toml"
+          hugo config --config "$RUNNER_TEMP/job.toml" --format json \
+            | jq -e '.segments.target.includes[0].path' >/dev/null \
+            || { echo "::error::segments.target missing after synthesis"; exit 1; }
+
+      - name: Build ${{ matrix.family }}/${{ matrix.platform }} (all locales, bounded retry)
         env:
           HUGO_ENABLEGITINFO: "false"
-        run: |
-          hugo --config "./configs/reference.aspose.org.toml" \
-               --renderSegments "${{ matrix.segment }}" \
-               -b "${{ env.url }}" \
-               --cleanDestinationDir --minify \
-               --templateMetrics --templateMetricsHints \
-               --environment "${{ github.event.inputs.environment }}"
-
-      - name: Deploy ${{ matrix.segment }} to Ceph
-        if: github.event.inputs.environment == 'production'
-        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
-        run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "production_ceph" \
-                      --force \
-                      --maxDeletes 0
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-
-  deploy-pdf:
-    name: "deploy / pdf-${{ matrix.platform }}"
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Split pdf by platform: net (808 EN pages), java (552), go (145).
-        # Each builds all 37 locales together (Hugo multilingual requirement).
-        # Per-job output: ~3 GB, ~2 GB, ~0.5 GB � all fit on ubuntu-latest runners.
-        platform: [net, java, go]
-    steps:
-      - name: Checkout site repo (sparse)
-        uses: actions/checkout@v4
-        with:
-          repository: Aspose/aspose.org
-          token: ${{ secrets.REPO_TOKEN }}
-          fetch-depth: 1
-          filter: blob:none
-          sparse-checkout: |
-            configs
-            layouts
-            themes
-            assets
-            static
-            data
-            i18n
-            content/reference.aspose.org/*/*/_index.md
-            content/reference.aspose.org/*/*/*/_index.md
-            content/reference.aspose.org/*/pdf/_index*.md
-            content/reference.aspose.org/*/pdf/${{ matrix.platform }}
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Hugo
-        run: |
-          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
-          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
-          sudo mv hugo /usr/local/bin/hugo
-          hugo version
-
-      - name: Determine Base URL
         shell: bash
         run: |
-          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
-            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
-          else
-            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
-          fi
+          set -uo pipefail
+          for attempt in 1 2; do
+            if hugo --config "$RUNNER_TEMP/job.toml" \
+                 --renderSegments "target" \
+                 -b "${{ env.url }}" \
+                 --cleanDestinationDir --minify \
+                 --environment "${{ github.event.inputs.environment }}"; then
+              exit 0
+            fi
+            echo "::warning title=Build retry::attempt $attempt failed for ${{ matrix.family }}/${{ matrix.platform }}"
+            rm -rf public
+          done
+          exit 1
 
-      - name: Build pdf-${{ matrix.platform }} (all 37 languages)
-        env:
-          HUGO_ENABLEGITINFO: "false"
-          # Disable FlexSearch index generation � search-data.json aggregates ALL .Site.Pages
-          # regardless of --renderSegments; with 37 locales � all families the Turkish locale
-          # exceeds Hugo's 3072-page slice capacity. Search is built by deploy-family jobs instead.
-          HUGO_PARAMS_SEARCH_ENABLE: "false"
-        run: |
-          hugo --config "./configs/reference.aspose.org.toml" \
-               --renderSegments "pdf-${{ matrix.platform }}" \
-               -b "${{ env.url }}" \
-               --cleanDestinationDir --minify \
-               --templateMetrics --templateMetricsHints \
-               --environment "${{ github.event.inputs.environment }}"
-
-      - name: Deploy pdf-${{ matrix.platform }} to Ceph
-        if: github.event.inputs.environment == 'production'
-        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
-        run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "production_ceph" \
-                      --force \
-                      --maxDeletes 0
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-
-  deploy-3d:
-    name: "deploy / 3d-${{ matrix.platform }}"
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Split 3d by platform: python (120 EN), typescript (143), net (201), java (215).
-        # Each builds all 37 locales together (Hugo multilingual requirement).
-        # Avoids disk exhaustion on GHA runners (25,123 total pages with 37 locales).
-        platform: [python, typescript, net, java]
-    steps:
-      - name: Checkout site repo (sparse)
-        uses: actions/checkout@v4
-        with:
-          repository: Aspose/aspose.org
-          token: ${{ secrets.REPO_TOKEN }}
-          fetch-depth: 1
-          filter: blob:none
-          sparse-checkout: |
-            configs
-            layouts
-            themes
-            assets
-            static
-            data
-            i18n
-            content/reference.aspose.org/*/*/_index.md
-            content/reference.aspose.org/*/*/*/_index.md
-            content/reference.aspose.org/*/3d/_index*.md
-            content/reference.aspose.org/*/3d/${{ matrix.platform }}
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Hugo
-        run: |
-          wget -q https://github.com/gohugoio/hugo/releases/download/v0.154.5/hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
-          tar xf hugo_extended_withdeploy_0.154.5_linux-amd64.tar.gz
-          sudo mv hugo /usr/local/bin/hugo
-          hugo version
-
-      - name: Determine Base URL
+      - name: Isolation guard (Hugo fails open on segment mistakes -- never deploy a leak)
         shell: bash
         run: |
-          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
-            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
-          else
-            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          set -euo pipefail
+          fam='${{ matrix.family }}'
+          # Every rendered index.html must belong to this shard's family (locale-prefixed or root).
+          leaked=$(find public -name 'index.html' -printf '%P\n' \
+            | awk -F/ '{ seg = ($1 ~ /^[a-z]{2}(-[a-z]+)?$/ && NF > 1) ? $2 : $1; print seg }' \
+            | sort -u | grep -vx "$fam" || true)
+          if [ -n "$leaked" ]; then
+            echo "::error title=Segment leak::rendered HTML outside $fam: $leaked"
+            exit 1
           fi
+          # A shard that rendered nothing must never silently "succeed" (bad synthesized
+          # config renders 0 pages and would deploy an empty set as green).
+          rendered=$(find public -name 'index.html' | wc -l)
+          if [ "$rendered" -lt 10 ]; then
+            echo "::error title=Empty shard::only $rendered pages rendered for $fam -- synthesized config or checkout is broken"
+            exit 1
+          fi
+          # Whole-site aggregates must never come from a shard job.
+          if find public \( -name 'sitemap*.xml' \) | grep -q .; then
+            echo "::error title=Aggregate leak::shard job emitted sitemap files"
+            exit 1
+          fi
+          echo "isolation OK: only $fam rendered, no aggregates"
 
-      - name: Build 3d-${{ matrix.platform }} (all 37 languages)
-        env:
-          HUGO_ENABLEGITINFO: "false"
-          HUGO_PARAMS_SEARCH_ENABLE: "false"
-        run: |
-          hugo --config "./configs/reference.aspose.org.toml" \
-               --renderSegments "3d-${{ matrix.platform }}" \
-               -b "${{ env.url }}" \
-               --cleanDestinationDir --minify \
-               --templateMetrics --templateMetricsHints \
-               --environment "${{ github.event.inputs.environment }}"
-
-      - name: Deploy 3d-${{ matrix.platform }} to Ceph
+      - name: Deploy ${{ matrix.family }}/${{ matrix.platform }} to Ceph
         if: github.event.inputs.environment == 'production'
+        # --maxDeletes 0 = upload-only; a shard must never delete other shards' files
         run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
+          hugo deploy --config "$RUNNER_TEMP/job.toml" \
                       --target "production_ceph" \
                       --force \
                       --maxDeletes 0
@@ -230,6 +191,7 @@ jobs:
   deploy-shared:
     name: "deploy / shared (home + 404 + llms)"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout site repo (sparse)
         uses: actions/checkout@v4
@@ -301,7 +263,6 @@ jobs:
 
       - name: Deploy shared + LLM files to Ceph
         if: github.event.inputs.environment == 'production'
-        # --maxDeletes 0 = upload-only; other families' bucket files are never deleted
         run: |
           hugo deploy --config "./configs/reference.aspose.org.toml" \
                       --target "production_ceph" \
@@ -313,10 +274,14 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
   deploy-sitemap:
-    name: "deploy / sitemap (all families + all 37 locales)"
+    name: "deploy / sitemap (full content, all locales)"
     runs-on: ubuntu-latest
-    # Runs after all content jobs so the sitemap only advertises URLs that are already live.
-    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared]
+    timeout-minutes: 30
+    # Decoupled from content-shard success (RC2/RC5 fix): builds from SOURCE, needs only
+    # ordering. if always() means a flaky shard can no longer skip the sitemap. Tradeoff
+    # (accepted in plan): may briefly list a URL whose shard is mid-retry.
+    needs: [discover, deploy-content, deploy-shared]
+    if: ${{ always() && needs.discover.result == 'success' }}
     steps:
       - name: Checkout site repo (sparse -- ALL reference content)
         uses: actions/checkout@v4
@@ -325,10 +290,6 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 1
           filter: blob:none
-          # Full content checkout (every family, every locale). The sitemap segment
-          # renders ONLY the per-language sitemaps + root sitemapindex (no HTML), so the
-          # page graph must contain the whole site to be complete. Source markdown only --
-          # blob:none keeps this cheap; no HTML is written so there is no disk-exhaustion risk.
           sparse-checkout: |
             configs
             layouts
@@ -359,9 +320,15 @@ jobs:
       - name: Build sitemaps (sitemapindex + one urlset per language, no HTML)
         env:
           HUGO_ENABLEGITINFO: "false"
-          # search-data.json aggregates ALL .Site.Pages regardless of segment and overflows
-          # Hugo's 3072-page slice on some locales; the sitemap segment does not need it.
+          # Full-graph build: the FlexSearch template overflows on the whole-site page
+          # collection (slice bounds error, reproduced locally 2026-07-14). No HTML renders
+          # in this segment anyway, so search assets must stay off here.
           HUGO_PARAMS_SEARCH_ENABLE: "false"
+          # Determinism: parallel render raced translation-group pages in/out of locale
+          # sitemaps (reproduced 2026-07-14: two identical builds differed). Data-side
+          # cause fixed (draft desync, commit b860c6fb92); single-threaded assembly is
+          # kept as defense-in-depth so reruns stay byte-identical (~+3 min, this job only).
+          HUGO_NUMWORKERMULTIPLIER: "1"
         run: |
           hugo --config "./configs/reference.aspose.org.toml" \
                --renderSegments "sitemap" \
@@ -369,11 +336,23 @@ jobs:
                --cleanDestinationDir --minify \
                --environment "${{ github.event.inputs.environment }}"
 
+      - name: Verify sitemap output (gate before deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          locales=$(grep -cE '^\s*\[languages\.[a-z]+\]' configs/reference.aspose.org.toml)
+          test -f public/sitemap.xml || { echo "::error::root sitemap.xml missing"; exit 1; }
+          grep -q "<sitemapindex" public/sitemap.xml || { echo "::error::root sitemap is not a sitemapindex"; exit 1; }
+          n=$(grep -o "<loc>" public/sitemap.xml | wc -l)
+          [ "$n" -eq "$locales" ] || { echo "::error::sitemapindex has $n entries, expected $locales"; exit 1; }
+          test -f public/en/sitemap.xml || { echo "::error::en/sitemap.xml missing"; exit 1; }
+          echo "sitemapindex entries=$n locales=$locales"
+          if find public -name 'index.html' | grep -q .; then
+            echo "::error::sitemap job rendered HTML (segment leak)"; exit 1
+          fi
+
       - name: Deploy sitemaps to Ceph
         if: github.event.inputs.environment == 'production'
-        # --maxDeletes 0 = upload-only. This is the ONLY job that writes sitemap.xml /
-        # <lang>/sitemap.xml, so there is no cross-job overwrite race; it replaces the
-        # stale pre-split root sitemap with a complete sitemapindex.
         run: |
           hugo deploy --config "./configs/reference.aspose.org.toml" \
                       --target "production_ceph" \
@@ -386,9 +365,9 @@ jobs:
 
   purge-cdn:
     name: Purge CDN cache
-    needs: [deploy-family, deploy-pdf, deploy-3d, deploy-shared, deploy-sitemap]
+    needs: [deploy-content, deploy-shared, deploy-sitemap]
     runs-on: ubuntu-latest
-    if: github.event.inputs.environment == 'production'
+    if: ${{ always() && github.event.inputs.environment == 'production' && needs.deploy-sitemap.result == 'success' }}
     steps:
       - name: Purge CDN cache
         id: cdn_purge
