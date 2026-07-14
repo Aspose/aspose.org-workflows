@@ -4,7 +4,7 @@
   "previous_sha": "12f6a06406568654d684e9d59c81ff7e44ecd216",
   "detected_at": "2026-07-14T06:10:38.759061+00:00",
   "global_change": true,
-  "state": "production",
+  "state": "failed",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
@@ -39,8 +39,8 @@
       "staging_run_id": 29310601434,
       "staging_status": "success",
       "production_trigger_time": "2026-07-14T07:54:26Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 29323218614,
+      "production_status": "failed"
     },
     {
       "workflow": "websites.aspose.org.yml",
@@ -70,6 +70,6 @@
     }
   ],
   "completed_at": null,
-  "failed_at": null,
-  "error": null
+  "failed_at": "2026-07-14T10:15:19.580356+00:00",
+  "error": "Production failed: reference.aspose.org.yml (conclusion: failure)"
 }
