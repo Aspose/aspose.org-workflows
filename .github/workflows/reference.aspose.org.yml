@@ -75,6 +75,20 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
+      # The largest shards (e.g. pdf/net: 807 pages x 37 locales = ~29.9k rendered
+      # pages) push GH-hosted runners past their free disk headroom -- run 29393640546
+      # died with "No space left on device" (the runner's own diagnostic log couldn't
+      # be written) after 20m, even though rendered count was under the 33000-page
+      # size-guard budget. Content itself is tiny (4.5MB, no images); the disk is
+      # consumed by preinstalled toolchains this job never uses. Reclaim it up front.
+      - name: Free disk space (reclaim unused preinstalled toolchains)
+        shell: bash
+        run: |
+          set -x
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h /
+
       - name: Checkout site repo (sparse -- one shard + nav indexes)
         uses: actions/checkout@v4
         with:
