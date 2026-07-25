@@ -60,7 +60,7 @@ jobs:
       # Ceph is the required production target. This step is a hard fail.
       - name: Deploy docs.aspose.org to Ceph
         if: github.event.inputs.environment == 'production'
-        run: hugo deploy --config "./configs/docs.aspose.org.toml" --target "production_ceph" --force
+        run: hugo deploy --config "./configs/docs.aspose.org.toml" --target "production_ceph" --force --maxDeletes 0
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
