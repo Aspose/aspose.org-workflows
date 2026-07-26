@@ -1,75 +1,75 @@
 {
-  "scan_id": "20260725-061756",
-  "content_sha": "a174bbff1e7f844348de3d09e5d989918f97dba4",
-  "previous_sha": "264b51b2803dd34fd50a59fa0e899a3c5bbe4590",
-  "detected_at": "2026-07-25T06:17:56.431480+00:00",
+  "scan_id": "20260726-063654",
+  "content_sha": "512a6e8dcdf220f0d7a81ab7882245f95b6d4ef9",
+  "previous_sha": "a174bbff1e7f844348de3d09e5d989918f97dba4",
+  "detected_at": "2026-07-26T06:36:54.949921+00:00",
   "global_change": true,
-  "state": "completed",
+  "state": "pending",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:12Z",
-      "staging_run_id": 30147775791,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:14:31Z",
-      "production_run_id": 30149026448,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "kb.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:20Z",
-      "staging_run_id": 30147776980,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:14:38Z",
-      "production_run_id": 30149027662,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "products.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:26Z",
-      "staging_run_id": 30147779584,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:14:44Z",
-      "production_run_id": 30149030223,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "reference.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:33Z",
-      "staging_run_id": 30147780690,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:14:50Z",
-      "production_run_id": 30149031725,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "websites.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:39Z",
-      "staging_run_id": 30147277275,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:14:57Z",
-      "production_run_id": 30148967222,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "www.aspose.org.yml",
-      "staging_trigger_time": "2026-07-25T06:18:45Z",
-      "staging_run_id": 30147280114,
-      "staging_status": "success",
-      "production_trigger_time": "2026-07-25T07:15:03Z",
-      "production_run_id": 30148970919,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     }
   ],
   "production_only_workflows": [
     {
       "workflow": "blog.aspose.org.yml",
-      "production_trigger_time": "2026-07-25T06:18:51Z",
-      "production_run_id": 30147778304,
-      "production_status": "success"
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     }
   ],
-  "completed_at": "2026-07-25T08:21:17.704897+00:00",
+  "completed_at": null,
   "failed_at": null,
   "error": null
 }
