@@ -58,7 +58,7 @@ python check_status.py --manifest <path> --config <path>
 
 ```json
 {
-  "skip_staging_workflows": ["blog.aspose.net.yml"],
+  "skip_staging_workflows": ["blog.aspose.org.yml"],
   "workflow_timeout_minutes": 120
 }
 ```
