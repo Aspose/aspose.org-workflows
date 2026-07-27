@@ -1,8 +1,8 @@
 {
-  "scan_id": "20260726-063654",
+  "scan_id": "20260727-073101",
   "content_sha": "512a6e8dcdf220f0d7a81ab7882245f95b6d4ef9",
   "previous_sha": "a174bbff1e7f844348de3d09e5d989918f97dba4",
-  "detected_at": "2026-07-26T06:36:54.949921+00:00",
+  "detected_at": "2026-07-27T07:31:01.996926+00:00",
   "global_change": true,
   "state": "pending",
   "staged_workflows": [
