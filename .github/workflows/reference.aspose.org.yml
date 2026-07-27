@@ -77,7 +77,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      # The largest shards (e.g. pdf/net: 807 pages x 37 locales = ~29.9k rendered
+      # The largest shards (e.g. pdf/net: 807 pages x 26 locales = ~21k rendered
       # pages) push GH-hosted runners past their free disk headroom -- run 29393640546
       # died with "No space left on device" (the runner's own diagnostic log couldn't
       # be written) after 20m, even though rendered count was under the 33000-page
