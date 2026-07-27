@@ -48,7 +48,16 @@ jobs:
           fi
 
       - name: Build docs.aspose.org
-        run: hugo --config "./configs/docs.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}"
+        run: |
+          set -o pipefail
+          hugo --config "./configs/docs.aspose.org.toml" -b "${{ env.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo --environment "${{ github.event.inputs.environment }}" --printPathWarnings 2>&1 | tee hugo-build.log
+
+      - name: "Check for duplicate target paths (url:/aliases: frontmatter collision guard)"
+        run: |
+          if grep -q "Duplicate target paths" hugo-build.log; then
+            echo "::error::Hugo reported duplicate target paths -- a cross-language page collision exists (likely an explicit url: or aliases: frontmatter override). See the build log above for exact paths."
+            exit 1
+          fi
 
       - name: Generate LLM files
         run: |
