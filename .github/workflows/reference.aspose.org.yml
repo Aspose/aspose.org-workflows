@@ -200,7 +200,7 @@ jobs:
           fi
           echo "isolation OK: only $fam rendered, no aggregates"
 
-      - name: Deploy ${{ matrix.family }}/${{ matrix.platform }} to Ceph
+      - name: Deploy ${{ matrix.family }}/${{ matrix.platform }} to Ceph (production)
         if: github.event.inputs.environment == 'production'
         # --maxDeletes 0 = upload-only; a shard must never delete other shards' files
         run: |
@@ -211,6 +211,19 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+      - name: Deploy ${{ matrix.family }}/${{ matrix.platform }} to Ceph (staging)
+        if: github.event.inputs.environment != 'production'
+        # --maxDeletes 0 = upload-only; a shard must never delete other shards' files
+        run: |
+          hugo deploy --config "$RUNNER_TEMP/job.toml" \
+                      --target "staging_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
   deploy-shared:
@@ -286,7 +299,7 @@ jobs:
       - name: Copy LLM files into Hugo output
         run: cp -r llms-output/reference.aspose.org/. public/
 
-      - name: Deploy shared + LLM files to Ceph
+      - name: Deploy shared + LLM files to Ceph (production)
         if: github.event.inputs.environment == 'production'
         run: |
           hugo deploy --config "./configs/reference.aspose.org.toml" \
@@ -296,6 +309,18 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
+      - name: Deploy shared + LLM files to Ceph (staging)
+        if: github.event.inputs.environment != 'production'
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "staging_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
   deploy-sitemap:
@@ -380,7 +405,7 @@ jobs:
             echo "::error::sitemap job rendered HTML (segment leak)"; exit 1
           fi
 
-      - name: Deploy sitemaps to Ceph
+      - name: Deploy sitemaps to Ceph (production)
         if: github.event.inputs.environment == 'production'
         run: |
           hugo deploy --config "./configs/reference.aspose.org.toml" \
@@ -392,12 +417,33 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
 
+      - name: Deploy sitemaps to Ceph (staging)
+        if: github.event.inputs.environment != 'production'
+        run: |
+          hugo deploy --config "./configs/reference.aspose.org.toml" \
+                      --target "staging_ceph" \
+                      --force \
+                      --maxDeletes 0
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+
   purge-cdn:
     name: Purge CDN cache
     needs: [deploy-content, deploy-shared, deploy-sitemap]
     runs-on: ubuntu-latest
-    if: ${{ always() && github.event.inputs.environment == 'production' && needs.deploy-sitemap.result == 'success' }}
+    if: ${{ always() && needs.deploy-sitemap.result == 'success' }}
     steps:
+      - name: Determine Base URL
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            echo "url=https://reference.aspose.org" >> "$GITHUB_ENV"
+          else
+            echo "url=https://reference-qa.aspose.org" >> "$GITHUB_ENV"
+          fi
+
       - name: Purge CDN cache
         id: cdn_purge
         continue-on-error: true
@@ -405,7 +451,7 @@ jobs:
         run: |
           curl -iG \
             -H "X-Api-Key: ${{ secrets.BUNNY_NET }}" \
-            --data-urlencode "url=https://reference.aspose.org/*" \
+            --data-urlencode "url=${{ env.url }}/*" \
             "https://api.dynabic.com/bn/purge?async=true"
 
       - name: Warn on CDN purge failure
