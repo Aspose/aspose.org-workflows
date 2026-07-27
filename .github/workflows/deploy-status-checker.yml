@@ -8,7 +8,6 @@ on:
       - "products.aspose.org"
       - "reference.aspose.org"
       - "websites.aspose.org"
-      - "www.aspose.org"
       - "blog.aspose.org"
     types:
       - completed

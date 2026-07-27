@@ -50,15 +50,6 @@
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
-    },
-    {
-      "workflow": "www.aspose.org.yml",
-      "staging_trigger_time": null,
-      "staging_run_id": null,
-      "staging_status": "pending",
-      "production_trigger_time": null,
-      "production_run_id": null,
-      "production_status": "pending"
     }
   ],
   "production_only_workflows": [

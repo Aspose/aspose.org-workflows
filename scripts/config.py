@@ -5,9 +5,11 @@ All domain, subdomain, family, and language constants live here.
 
 DOMAIN = "aspose.org"
 
-# All 7 aspose.org subdomains
+# All 6 aspose.org subdomains with active deploy/sitemap pipelines.
+# www.aspose.org is permanently disabled (2026-07-27) and excluded here so
+# detect_changes.py, the deploy manifest, and the sitemap submitters never
+# target its (disabled) workflow.
 SUBDOMAINS = [
-    "www.aspose.org",
     "products.aspose.org",
     "docs.aspose.org",
     "kb.aspose.org",
