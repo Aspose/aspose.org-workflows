@@ -19,8 +19,17 @@ name: SEO Schema A Keyword Refresh
 
 on:
   schedule:
-    # First Sunday of each month at 07:00 UTC (one hour after gsc-query-collector)
-    - cron: '0 7 1-7 * 0'
+    # 1st of each month at 07:00 UTC (one hour after gsc-query-collector).
+    # Fixed 2026-07-30: the original '0 7 1-7 * 0' restricted BOTH day-of-month
+    # (1-7) AND day-of-week (0=Sunday) -- cron/GitHub Actions OR-semantics mean
+    # a schedule matching EITHER field fires, not their intersection. That
+    # expression actually fired every day 1-7 of the month PLUS every Sunday
+    # (~11 runs/month, confirmed via Aspose/aspose.org-workflows run history:
+    # daily runs 2026-07-01 through 07-07, then weekly on 07-12/07-19/07-26),
+    # not once a month as the comment and design intended. A single
+    # unambiguous day-of-month with day-of-week left as '*' has no such
+    # OR-ambiguity.
+    - cron: '0 7 1 * *'
   workflow_dispatch:
     inputs:
       families:
@@ -65,8 +74,15 @@ jobs:
 
       - name: Determine families argument
         id: families
+        # Hardened 2026-07-30: gate on github.event_name explicitly rather than
+        # testing `github.event.inputs.families` alone. `inputs` does not exist
+        # at all on a `schedule` trigger, and get_keywords.py's --families uses
+        # argparse nargs="+" (requires >=1 value) -- a rendered "--families "
+        # with nothing following it would fail argument parsing before any
+        # Gemini call, and the next step's `|| echo WARNING ...` would swallow
+        # that failure as a non-fatal warning, silently no-op-ing the run.
         run: |
-          if [ -n "${{ github.event.inputs.families }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.families }}" ]; then
             echo "args=--families ${{ github.event.inputs.families }}" >> "$GITHUB_OUTPUT"
           else
             echo "args=" >> "$GITHUB_OUTPUT"
