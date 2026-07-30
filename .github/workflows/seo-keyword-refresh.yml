@@ -17,6 +17,18 @@
 
 name: SEO Schema A Keyword Refresh
 
+# Prevents two runs (e.g. a manual workflow_dispatch overlapping the monthly
+# schedule) from hammering the same free-tier Gemini key concurrently, which
+# would multiply 429 pressure and could race on the `git push` in the "Open
+# PR" step (both trying to push the same seo/keyword-refresh-YYYYMM branch).
+# A single fixed group (not per-ref) is correct here: this workflow is a
+# singleton job, not a per-branch/per-PR one. cancel-in-progress stays false
+# -- an in-progress run has already spent real API quota; queue behind it
+# rather than cancel and waste that.
+concurrency:
+  group: seo-keyword-refresh
+  cancel-in-progress: false
+
 on:
   schedule:
     # 1st of each month at 07:00 UTC (one hour after gsc-query-collector).
