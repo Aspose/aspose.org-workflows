@@ -55,7 +55,15 @@ on:
           Comma-separated content directories to scan (relative to repo root).
           Default scans kb, docs, and products.
         required: false
-        default: 'content/kb.aspose.org,content/docs.aspose.org/en,content/products.aspose.org/en'
+        # Fixed 2026-07-30: kb.aspose.org's real content lives under content/kb.aspose.org/en/,
+        # identical to docs and products -- the prior default omitted /en/ for kb specifically,
+        # so every run (scheduled or manual, since this default is also the fallback in the
+        # "Refresh keywords" step below) silently processed 0 kb.aspose.org files for every
+        # family, with no error (get_keywords.py just logs "directory does not exist" and moves
+        # on). Found while running SEO-SCHEMA-A-BOOTSTRAP-REGENERATION locally against this same
+        # default -- confirmed via real content/kb.aspose.org/en/{family}/ directories existing
+        # for every family tested.
+        default: 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en'
 
 jobs:
   refresh-keywords:
@@ -108,7 +116,7 @@ jobs:
             echo "ERROR: GOOGLE_API_KEY secret is not set. Add it under Aspose/aspose.org-workflows Settings -> Secrets -> Actions." >&2
             exit 1
           fi
-          SITES="${{ github.event.inputs.content_sites || 'content/kb.aspose.org,content/docs.aspose.org/en,content/products.aspose.org/en' }}"
+          SITES="${{ github.event.inputs.content_sites || 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en' }}"
           IFS=',' read -ra SITE_ARRAY <<< "$SITES"
           for site in "${SITE_ARRAY[@]}"; do
             echo "=== Processing: $site ==="
