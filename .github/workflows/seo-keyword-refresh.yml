@@ -5,7 +5,26 @@
 # This workflow must live in the public aspose.org-workflows repo alongside
 # seo-analysis.yml and seo-apply.yml. It checks out the private Aspose/aspose.org
 # repo at runtime using GH_TOKEN, runs the keyword generation scripts, and opens a
-# pull request back on Aspose/aspose.org if any keyword files changed.
+# pull request back on Aspose/aspose.org if any keyword files changed -- auto-merging
+# it if (and only if) 4 automated safety gates all pass (see the "Check auto-merge
+# safety gates" step below); otherwise the PR is left open for human review, exactly
+# as before this workflow could auto-merge anything.
+#
+# Runs WEEKLY (not monthly -- SEO-SCHEMA-A-WORKFLOW-UPDATE). Change-detection
+# (get_keywords.py skips a page whose title hasn't changed since it was last
+# covered) keeps routine weekly cost small and proportional to real content
+# churn, not total corpus size -- see get_keywords.py's own docstring on
+# process_markdown_files_by_families for the skip-if-unchanged / --force /
+# --max-calls design.
+#
+# ONE-TIME MIGRATION PASS: the original SEO-SCHEMA-A-BOOTSTRAP-REGENERATION
+# dataset (896 entries, 12 families) was generated before per-file platform
+# detection existed, so most non-.NET entries are mislabeled (Finding #50).
+# Change-detection alone would skip these forever (their titles haven't
+# changed). Run this workflow once via workflow_dispatch with force_refresh=true
+# and families set to the 12 already-processed families to correct them --
+# likely spanning several dispatches given the real, empirically-tight quota
+# ceiling (see SEO-SCHEMA-A-BOOTSTRAP-REGENERATION in the governing plan).
 #
 # Required secrets (set in Aspose/aspose.org-workflows):
 #   GOOGLE_API_KEY  - Gemini API key for get_keywords.py
@@ -17,37 +36,35 @@
 
 name: SEO Schema A Keyword Refresh
 
-# Prevents two runs (e.g. a manual workflow_dispatch overlapping the monthly
+# Prevents two runs (e.g. a manual workflow_dispatch overlapping the weekly
 # schedule) from hammering the same free-tier Gemini key concurrently, which
 # would multiply 429 pressure and could race on the `git push` in the "Open
-# PR" step (both trying to push the same seo/keyword-refresh-YYYYMM branch).
-# A single fixed group (not per-ref) is correct here: this workflow is a
-# singleton job, not a per-branch/per-PR one. cancel-in-progress stays false
-# -- an in-progress run has already spent real API quota; queue behind it
-# rather than cancel and waste that.
+# PR" step (both trying to push a branch for the same day). A single fixed
+# group (not per-ref) is correct here: this workflow is a singleton job, not
+# a per-branch/per-PR one. cancel-in-progress stays false -- an in-progress
+# run has already spent real API quota; queue behind it rather than cancel
+# and waste that.
 concurrency:
   group: seo-keyword-refresh
   cancel-in-progress: false
 
 on:
   schedule:
-    # 1st of each month at 07:00 UTC (one hour after gsc-query-collector).
-    # Fixed 2026-07-30: the original '0 7 1-7 * 0' restricted BOTH day-of-month
-    # (1-7) AND day-of-week (0=Sunday) -- cron/GitHub Actions OR-semantics mean
-    # a schedule matching EITHER field fires, not their intersection. That
-    # expression actually fired every day 1-7 of the month PLUS every Sunday
-    # (~11 runs/month, confirmed via Aspose/aspose.org-workflows run history:
-    # daily runs 2026-07-01 through 07-07, then weekly on 07-12/07-19/07-26),
-    # not once a month as the comment and design intended. A single
-    # unambiguous day-of-month with day-of-week left as '*' has no such
-    # OR-ambiguity.
-    - cron: '0 7 1 * *'
+    # Every Sunday at 07:00 UTC (one hour after gsc-query-collector).
+    # SEO-SCHEMA-A-WORKFLOW-UPDATE: changed from monthly ('0 7 1 * *') to
+    # weekly. A single restricted field (day-of-week only, day-of-month left
+    # '*') has no OR-ambiguity risk -- unlike the original '0 7 1-7 * 0' bug
+    # (fixed 2026-07-30) where restricting BOTH day-of-month and day-of-week
+    # fired on either match under cron/GitHub-Actions OR-semantics (~11
+    # runs/month instead of the intended 1).
+    - cron: '0 7 * * 0'
   workflow_dispatch:
     inputs:
       families:
         description: >
           Space-separated list of families to refresh.
-          Leave blank to refresh all 18 default families.
+          Leave blank to refresh all families from data/family_descriptions.json
+          (dynamic -- do not hardcode a count here; it changes as families launch).
         required: false
         default: ''
       content_sites:
@@ -64,16 +81,36 @@ on:
         # default -- confirmed via real content/kb.aspose.org/en/{family}/ directories existing
         # for every family tested.
         default: 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en'
+      force_refresh:
+        description: >
+          Bypass skip-if-unchanged and force a fresh Gemini call for every page in scope,
+          even if its title hasn't changed since last covered. Only needed for the one-time
+          migration pass that corrects the per-file platform-mislabeling defect (Finding #50)
+          in the original bootstrap dataset -- do NOT enable this for routine runs, it defeats
+          the change-detection that keeps weekly cost small.
+        required: false
+        default: false
+        type: boolean
+      max_calls:
+        description: >
+          Total Gemini call budget for this run, split evenly across the content sites
+          scanned. Default keeps a single run well under the empirically-observed ~350-400
+          call exhaustion ceiling found while running SEO-SCHEMA-A-BOOTSTRAP-REGENERATION.
+        required: false
+        default: '250'
 
 jobs:
   refresh-keywords:
     name: Refresh Schema A keywords
     runs-on: ubuntu-latest
-    # Free-tier Gemini API: 1,500 RPD / 15 RPM.
-    # get_keywords.py already sleeps 60s on 429s (15 RPM throttle).
-    # 90-min timeout caps this run at ~1,350 calls max — safely under the daily limit.
-    # On first run for new families (3d, cad, diagram, email, note, slides), use
-    # workflow_dispatch with --families to seed one family at a time if needed.
+    # Free-tier Gemini API: as low as 15 RPM. get_keywords.py paces every
+    # call at 4.5s and bounds 429-retry (5 attempts, exponential backoff) --
+    # see SEO-SCHEMA-A-GEMINI-LIMITS-HARDENING. --max-calls (default 250,
+    # split across sites below) is now the PRIMARY quota control for a
+    # single run; this timeout is a backstop, not the main budget mechanism.
+    # Routine weekly runs should make very few calls at all (change-detection
+    # skips pages whose title hasn't changed) -- the migration pass
+    # (force_refresh=true) is the one that will actually approach the budget.
     timeout-minutes: 90
 
     steps:
@@ -118,9 +155,29 @@ jobs:
           fi
           SITES="${{ github.event.inputs.content_sites || 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en' }}"
           IFS=',' read -ra SITE_ARRAY <<< "$SITES"
+
+          MAX_CALLS_TOTAL="${{ github.event.inputs.max_calls || '250' }}"
+          NUM_SITES=${#SITE_ARRAY[@]}
+          PER_SITE_BUDGET=$((MAX_CALLS_TOTAL / NUM_SITES))
+          if [ "$PER_SITE_BUDGET" -lt 1 ]; then PER_SITE_BUDGET=1; fi
+
+          EXTRA_ARGS=""
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --force"
+          fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Rotate family processing order by ISO week so a fixed per-run
+            # budget doesn't always prioritize the same early families over
+            # many weekly runs. Not applied to manual/migration dispatches,
+            # where an operator-specified --families order should be honored
+            # as given.
+            EXTRA_ARGS="$EXTRA_ARGS --rotate-weekly"
+          fi
+
           for site in "${SITE_ARRAY[@]}"; do
-            echo "=== Processing: $site ==="
+            echo "=== Processing: $site (per-site call budget: $PER_SITE_BUDGET) ==="
             python scripts/seo/get_keywords.py "$site" keywords/ ${{ steps.families.outputs.args }} \
+              --max-calls "$PER_SITE_BUDGET" $EXTRA_ARGS \
               || echo "WARNING: $site exited non-zero (likely missing family sub-directories - non-fatal)"
           done
 
@@ -138,31 +195,36 @@ jobs:
           git diff --stat keywords/ >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Open PR on Aspose/aspose.org if keywords changed
+        id: open_pr
         if: steps.summary.outputs.changed_files != '0'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
         run: |
-          BRANCH="seo/keyword-refresh-$(date +%Y%m)"
+          BASE_SHA=$(git rev-parse HEAD)
+          BRANCH="seo/keyword-refresh-$(date +%Y%m%d)-${{ github.run_number }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add keywords/
-          git commit -m "chore(seo): refresh Schema A keywords [$(date +%Y-%m)]"
+          git commit -m "chore(seo): refresh Schema A keywords [$(date +%Y-%m-%d)]"
           git push origin "$BRANCH"
           {
             echo "## Schema A Keyword Refresh"
             echo ""
-            echo "Automated monthly refresh of LLM-derived Schema A keyword sets."
+            echo "Automated weekly refresh of LLM-derived Schema A keyword sets."
             echo ""
             echo "**Changes:**"
-            echo "- Updated \`keywords/{family}.json\` files for all families"
+            echo "- Updated \`keywords/{family}.json\` files"
             echo "- Scanned \`content/kb.aspose.org\`, \`content/docs.aspose.org/en\`, \`content/products.aspose.org/en\`"
             echo "- Validation passed (\`validate.py\` exit 0)"
             echo ""
-            echo "**Review checklist:**"
-            echo "- [ ] No unexpected keyword deletions (check diff for removed \`pageTitle\` entries)"
-            echo "- [ ] No plugin-metadata contamination (keys should only be \`pageTitle\` + \`keywords\`)"
-            echo "- [ ] Family JSON files that changed make sense for the families listed"
+            echo "**Auto-merge policy:** this is a scoped, operator-authorized exception to this"
+            echo "project's general human-merge-only rule for external PRs, limited to Schema A"
+            echo "keyword data. This PR auto-merges only if ALL of the following automated gates"
+            echo "pass; otherwise it is left open for human review, same as before this exception:"
+            echo "- Diff scoped exclusively to \`keywords/*.json\` (no other path changed)"
+            echo "- Every changed entry has only \`pageTitle\`/\`sourcePath\`/\`keywords\` keys"
+            echo "- No family's entry count decreased vs the base commit"
             echo ""
             echo "**Next step after merge:** Re-run \`seo-analysis.yml\` to pick up the refreshed keyword signals."
             echo ""
@@ -171,10 +233,40 @@ jobs:
           } > /tmp/pr-body.md
           gh pr create \
             --repo Aspose/aspose.org \
-            --title "chore(seo): Schema A keyword refresh [$(date +%Y-%m)]" \
+            --title "chore(seo): Schema A keyword refresh [$(date +%Y-%m-%d)]" \
             --body-file /tmp/pr-body.md \
             --base main \
             --head "$BRANCH"
+          PR_NUMBER=$(gh pr view "$BRANCH" --repo Aspose/aspose.org --json number -q .number)
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check auto-merge safety gates
+        id: gates
+        if: steps.summary.outputs.changed_files != '0'
+        run: |
+          if python scripts/seo/pipeline/check_merge_safety.py --base-ref "${{ steps.open_pr.outputs.base_sha }}"; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-merge PR if all safety gates passed
+        if: steps.summary.outputs.changed_files != '0' && steps.gates.outputs.passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+        run: |
+          gh pr merge "${{ steps.open_pr.outputs.pr_number }}" --repo Aspose/aspose.org --squash --delete-branch
+          echo "Auto-merged PR #${{ steps.open_pr.outputs.pr_number }} -- all safety gates passed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Leave PR open for human review if any safety gate failed
+        if: steps.summary.outputs.changed_files != '0' && steps.gates.outputs.passed != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+        run: |
+          gh pr comment "${{ steps.open_pr.outputs.pr_number }}" --repo Aspose/aspose.org \
+            --body "One or more auto-merge safety gates FAILED -- left open for human review. See the \`Check auto-merge safety gates\` step in this workflow run's log for exactly which gate(s) failed."
+          echo "One or more auto-merge safety gates FAILED -- PR left open for human review." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Skip PR - no keyword changes
         if: steps.summary.outputs.changed_files == '0'
