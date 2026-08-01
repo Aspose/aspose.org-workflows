@@ -17,14 +17,19 @@
 # process_markdown_files_by_families for the skip-if-unchanged / --force /
 # --max-calls design.
 #
-# ONE-TIME MIGRATION PASS: the original SEO-SCHEMA-A-BOOTSTRAP-REGENERATION
-# dataset (896 entries, 12 families) was generated before per-file platform
-# detection existed, so most non-.NET entries are mislabeled (Finding #50).
-# Change-detection alone would skip these forever (their titles haven't
-# changed). Run this workflow once via workflow_dispatch with force_refresh=true
-# and families set to the 12 already-processed families to correct them --
-# likely spanning several dispatches given the real, empirically-tight quota
-# ceiling (see SEO-SCHEMA-A-BOOTSTRAP-REGENERATION in the governing plan).
+# AUTOMATIC PLATFORM-LABEL MIGRATION (Migration Plan v2): the original
+# SEO-SCHEMA-A-BOOTSTRAP-REGENERATION dataset (896 entries, 12 families) was
+# generated before per-file platform detection existed, so most non-.NET
+# entries are mislabeled (Finding #50). Change-detection alone would skip
+# these forever (their titles haven't changed). Rather than requiring a
+# human to remember a one-off --force dispatch (Finding #52 found that path
+# didn't even work -- it unioned instead of replacing keywords), the
+# "Run automatic platform-label migration" step below runs on every
+# scheduled invocation, tracks its own resumable progress in the committed
+# data/seo_schema_a_migration_state.json, spends a bounded slice of each
+# run's budget (migration_max_calls) correcting the next pending files, and
+# self-disables (a cheap no-op) once every target family is fully corrected.
+# No operator action is needed at any point.
 #
 # Required secrets (set in Aspose/aspose.org-workflows):
 #   GOOGLE_API_KEY  - Gemini API key for get_keywords.py
@@ -84,33 +89,51 @@ on:
       force_refresh:
         description: >
           Bypass skip-if-unchanged and force a fresh Gemini call for every page in scope,
-          even if its title hasn't changed since last covered. Only needed for the one-time
-          migration pass that corrects the per-file platform-mislabeling defect (Finding #50)
-          in the original bootstrap dataset -- do NOT enable this for routine runs, it defeats
-          the change-detection that keeps weekly cost small.
+          even if its title hasn't changed since last covered (replaces, not unions, that
+          page's keywords -- Finding #52). For ad hoc whole-family re-generation only; the
+          896-entry platform-mislabeling correction is now handled automatically by the
+          "Run automatic platform-label migration" step below, not this flag.
         required: false
         default: false
         type: boolean
       max_calls:
         description: >
-          Total Gemini call budget for this run, split evenly across the content sites
-          scanned. Default keeps a single run well under the empirically-observed ~350-400
-          call exhaustion ceiling found while running SEO-SCHEMA-A-BOOTSTRAP-REGENERATION.
+          Total Gemini call budget for routine refresh this run, split evenly across the
+          content sites scanned. Default keeps a single run well under the empirically-observed
+          ~350-400 call exhaustion ceiling found while running SEO-SCHEMA-A-BOOTSTRAP-REGENERATION.
+          Separate from migration_max_calls below.
         required: false
         default: '250'
+      run_migration:
+        description: >
+          Run the automatic platform-label migration step this run. Defaults on; disable for
+          one run if needed (e.g. mid quota-crisis) without touching the scheduled trigger,
+          which always runs it.
+        required: false
+        default: true
+        type: boolean
+      migration_max_calls:
+        description: >
+          Gemini call budget the migration step may spend this run, separate from and prior
+          to max_calls above -- guarantees routine refresh always has at least
+          (max_calls - migration_max_calls) calls of headroom even in a worst-case week.
+          At the default 150/week, the 896-entry correction completes in ~6 weeks.
+        required: false
+        default: '150'
 
 jobs:
   refresh-keywords:
     name: Refresh Schema A keywords
     runs-on: ubuntu-latest
-    # Free-tier Gemini API: as low as 15 RPM. get_keywords.py paces every
-    # call at 4.5s and bounds 429-retry (5 attempts, exponential backoff) --
-    # see SEO-SCHEMA-A-GEMINI-LIMITS-HARDENING. --max-calls (default 250,
-    # split across sites below) is now the PRIMARY quota control for a
+    # Free-tier Gemini API: as low as 15 RPM. get_keywords.py and
+    # migrate_platform_labels.py both pace every call at 4.5s and bound
+    # 429-retry (5 attempts, exponential backoff) -- see
+    # SEO-SCHEMA-A-GEMINI-LIMITS-HARDENING. migration_max_calls + max_calls
+    # (defaults 150 + 250 = 400) is now the PRIMARY quota control for a
     # single run; this timeout is a backstop, not the main budget mechanism.
-    # Routine weekly runs should make very few calls at all (change-detection
-    # skips pages whose title hasn't changed) -- the migration pass
-    # (force_refresh=true) is the one that will actually approach the budget.
+    # Routine refresh should make very few calls most weeks (change-detection
+    # skips pages whose title hasn't changed) -- the migration step is the
+    # one that will actually approach its budget until it self-completes.
     timeout-minutes: 90
 
     steps:
@@ -145,6 +168,26 @@ jobs:
             echo "args=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Determine content sites
+        id: sites
+        run: |
+          echo "sites=${{ github.event.inputs.content_sites || 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Run automatic platform-label migration
+        if: github.event_name == 'schedule' || github.event.inputs.run_migration != 'false'
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if [ -z "$GOOGLE_API_KEY" ]; then
+            echo "ERROR: GOOGLE_API_KEY secret is not set. Add it under Aspose/aspose.org-workflows Settings -> Secrets -> Actions." >&2
+            exit 1
+          fi
+          MIGRATION_MAX_CALLS="${{ github.event.inputs.migration_max_calls || '150' }}"
+          python scripts/seo/migrate_platform_labels.py keywords/ \
+            --content-sites "${{ steps.sites.outputs.sites }}" \
+            --max-calls "$MIGRATION_MAX_CALLS" \
+            || echo "WARNING: platform-label migration exited non-zero (likely a circuit-breaker trip -- real quota exhaustion is expected and recurring, not a bug; progress up to the trip was still saved). Continuing to routine refresh."
+
       - name: Refresh keywords for all content sites
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -153,7 +196,7 @@ jobs:
             echo "ERROR: GOOGLE_API_KEY secret is not set. Add it under Aspose/aspose.org-workflows Settings -> Secrets -> Actions." >&2
             exit 1
           fi
-          SITES="${{ github.event.inputs.content_sites || 'content/kb.aspose.org/en,content/docs.aspose.org/en,content/products.aspose.org/en' }}"
+          SITES="${{ steps.sites.outputs.sites }}"
           IFS=',' read -ra SITE_ARRAY <<< "$SITES"
 
           MAX_CALLS_TOTAL="${{ github.event.inputs.max_calls || '250' }}"
@@ -187,12 +230,19 @@ jobs:
       - name: Summarize changes
         id: summary
         run: |
-          CHANGED=$(git diff --name-only keywords/ | wc -l | tr -d ' ')
+          # git status --porcelain (not git diff --name-only): the migration
+          # state file may not exist yet on its very first run -- a brand new
+          # untracked file is invisible to `git diff` entirely, but shows up
+          # correctly (as `??`) in `git status --porcelain`. Using diff here
+          # would silently drop the state file's first-ever creation from both
+          # this count and the PR, breaking migration persistence from run one.
+          CHANGED=$(git status --porcelain -- keywords/ data/seo_schema_a_migration_state.json | wc -l | tr -d ' ')
           echo "changed_files=$CHANGED" >> "$GITHUB_OUTPUT"
           echo "### Keyword Refresh Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Changed files: $CHANGED" >> "$GITHUB_STEP_SUMMARY"
-          git diff --stat keywords/ >> "$GITHUB_STEP_SUMMARY" || true
+          git status --porcelain -- keywords/ data/seo_schema_a_migration_state.json >> "$GITHUB_STEP_SUMMARY" || true
+          git diff --stat -- keywords/ >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Open PR on Aspose/aspose.org if keywords changed
         id: open_pr
@@ -205,7 +255,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
+          # Explicit paths (not a bare `git add -A`): stages the migration
+          # state file even on its very first, currently-untracked creation,
+          # while never risking staging anything outside this workflow's own
+          # scope (matches check_merge_safety.py's Gate 2 exact-path allowlist).
+          # Guarded on existence: the file won't be there yet if run_migration
+          # was disabled for this run, and `git add` on a missing pathspec
+          # would otherwise fail the whole step (bash steps run with -e).
           git add keywords/
+          if [ -f data/seo_schema_a_migration_state.json ]; then
+            git add data/seo_schema_a_migration_state.json
+          fi
           git commit -m "chore(seo): refresh Schema A keywords [$(date +%Y-%m-%d)]"
           git push origin "$BRANCH"
           {
@@ -215,6 +275,7 @@ jobs:
             echo ""
             echo "**Changes:**"
             echo "- Updated \`keywords/{family}.json\` files"
+            echo "- Updated \`data/seo_schema_a_migration_state.json\` if the platform-label migration step made progress this run"
             echo "- Scanned \`content/kb.aspose.org\`, \`content/docs.aspose.org/en\`, \`content/products.aspose.org/en\`"
             echo "- Validation passed (\`validate.py\` exit 0)"
             echo ""
@@ -222,7 +283,7 @@ jobs:
             echo "project's general human-merge-only rule for external PRs, limited to Schema A"
             echo "keyword data. This PR auto-merges only if ALL of the following automated gates"
             echo "pass; otherwise it is left open for human review, same as before this exception:"
-            echo "- Diff scoped exclusively to \`keywords/*.json\` (no other path changed)"
+            echo "- Diff scoped exclusively to \`keywords/*.json\` and/or \`data/seo_schema_a_migration_state.json\` (no other path changed)"
             echo "- Every changed entry has only \`pageTitle\`/\`sourcePath\`/\`keywords\` keys"
             echo "- No family's entry count decreased vs the base commit"
             echo ""
