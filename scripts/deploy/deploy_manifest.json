@@ -4,16 +4,16 @@
   "previous_sha": "c86b90bd362c81f700d9bd49e9c70f37248c8501",
   "detected_at": "2026-08-13T05:40:00.326366+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "production",
   "staged_workflows": [
     {
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-08-13T05:40:22Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 31671128670,
+      "staging_status": "success",
+      "production_trigger_time": "2026-08-13T06:12:26Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     }
   ],
   "production_only_workflows": [],
