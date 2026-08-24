@@ -4,43 +4,43 @@
   "previous_sha": "13659b5d802f00f02e87fe1988998abec78e8a38",
   "detected_at": "2026-08-24T04:43:17.038203+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "production",
   "staged_workflows": [
     {
       "workflow": "docs.aspose.org.yml",
       "staging_trigger_time": "2026-08-24T04:43:30Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 32691074618,
+      "staging_status": "success",
+      "production_trigger_time": "2026-08-24T05:33:17Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     },
     {
       "workflow": "kb.aspose.org.yml",
       "staging_trigger_time": "2026-08-24T04:43:38Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 32691081193,
+      "staging_status": "success",
+      "production_trigger_time": "2026-08-24T05:33:24Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     },
     {
       "workflow": "products.aspose.org.yml",
       "staging_trigger_time": "2026-08-24T04:43:44Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 32691087875,
+      "staging_status": "success",
+      "production_trigger_time": "2026-08-24T05:33:31Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     },
     {
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-08-24T04:43:51Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 32691094264,
+      "staging_status": "success",
+      "production_trigger_time": "2026-08-24T05:33:38Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     }
   ],
   "production_only_workflows": [],
