@@ -1,8 +1,35 @@
+# seo-analysis.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# Weekly, read-only SEO analysis pipeline: validates keyword assets, builds a
+# content inventory, maps GSC URLs to content files, scores opportunities,
+# generates recommendations, runs safety checks, and produces a patch
+# manifest + reports as workflow artifacts. Never writes to content or opens
+# a PR itself -- scripts/seo/pipeline/apply.py (seo-apply.yml, a separate,
+# manually-triggered workflow) is the only thing that ever turns this
+# analysis into a real content change, and only after a human reviews it.
+#
+# Required secrets (set in Aspose/aspose.org-workflows):
+#   REPO_TOKEN      - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN        - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+#                     Fixed 2026-08-26 alongside seo-keyword-refresh.yml: this workflow
+#                     shared the identical GH_TOKEN-primary `||` bug (GH_TOKEN expired
+#                     2026-03-23, `||` only falls through on an EMPTY secret so the
+#                     expired-but-set GH_TOKEN silently won every time) -- confirmed
+#                     failing identically ("Bad credentials" at Checkout) on the same
+#                     2026-08-10/17/24 weekly schedule. Every token reference now reads
+#                     `secrets.REPO_TOKEN || secrets.GH_TOKEN`, with a pre-flight token
+#                     check and a failure-notification step matching seo-keyword-refresh.yml.
+#
+# To trigger manually:
+#   Aspose/aspose.org-workflows -> Actions -> SEO Analysis Pipeline -> Run workflow
+
 name: SEO Analysis Pipeline
 
 on:
   schedule:
-    - cron: '0 6 * * 1'   # Monday 6am UTC — runs after Sunday gsc-query-collector
+    - cron: '0 6 * * 1'   # Monday 06:00 UTC
   workflow_dispatch:
     inputs:
       families:
@@ -17,10 +44,30 @@ jobs:
       LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
       SEO_FAMILIES: ${{ inputs.families }}
     steps:
+      - name: Verify GitHub token is valid
+        # See seo-keyword-refresh.yml's identical step for the full rationale --
+        # fails fast with an explicit ::error:: instead of relying on
+        # actions/checkout's 3-retry-then-cryptic-failure behavior.
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
       - uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
-          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -59,3 +106,42 @@ jobs:
             reports/seo/
             patches/seo/
           retention-days: 30
+
+      - name: Open or update a tracking issue if this run failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create seo-analysis-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "seo-analysis.yml run failed" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON (token_check step outcome; if this ran before the token check even executed, check the run log directly -- could be an analysis-pipeline error instead).
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-analysis-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "seo-analysis.yml is failing" \
+              --label seo-analysis-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-analysis-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
