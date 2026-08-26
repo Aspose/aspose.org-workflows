@@ -67,7 +67,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install pyyaml
+        # ruamel.yaml added 2026-08-26: apply.py's format-preserving writer
+        # (SEO-APPLY-HARDEN) has required it since that task landed, but this
+        # workflow's dependency list was never updated to match -- undetected
+        # until now because the workflow hadn't been dispatched since
+        # 2026-04-17 (real error, found live: "ERROR: ruamel.yaml is required
+        # for format-preserving writes").
+        run: pip install pyyaml ruamel.yaml
 
       - name: Download analysis artifacts
         uses: actions/download-artifact@v4
