@@ -33,8 +33,21 @@
 #
 # Required secrets (set in Aspose/aspose.org-workflows):
 #   GOOGLE_API_KEY  - Gemini API key for get_keywords.py
-#   GH_TOKEN        - PAT with repo (full) scope on Aspose/aspose.org
-#                     (same token used by seo-analysis.yml and seo-apply.yml)
+#   REPO_TOKEN      - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN        - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+#                     Real incident, 2026-08-09 to 2026-08-23: GH_TOKEN (last rotated
+#                     2026-03-23) silently expired. Every token reference here used to
+#                     read `secrets.GH_TOKEN || secrets.REPO_TOKEN` -- GH_TOKEN-primary.
+#                     GitHub Actions' `||` only falls through on an EMPTY secret, not an
+#                     invalid/expired one, so an expired-but-still-set GH_TOKEN silently
+#                     wins every time and REPO_TOKEN, however fresh, was never reachable.
+#                     Result: 3 consecutive weekly runs failed at the first real step
+#                     (Checkout) with "Bad credentials", and nothing surfaced it -- no
+#                     notification existed, so it went unnoticed for 3 weeks. Fixed
+#                     2026-08-26: every token reference below now reads
+#                     `secrets.REPO_TOKEN || secrets.GH_TOKEN` (REPO_TOKEN primary), and
+#                     an explicit pre-flight token check + failure-notification step
+#                     (below) make a future credential failure loud, not silent.
 #
 # To trigger manually:
 #   Aspose/aspose.org-workflows -> Actions -> SEO Schema A Keyword Refresh -> Run workflow
@@ -137,11 +150,35 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      - name: Verify GitHub token is valid
+        # Runs BEFORE checkout, deliberately: actions/checkout@v4 retries 3x on auth
+        # failure before giving up, burning ~25s to produce a generic "Bad credentials"
+        # buried in raw logs -- exactly what let the 2026-08-09/16/23 failures go
+        # unnoticed for 3 weeks (nothing about that failure mode was loud). This step
+        # fails fast, with an explicit ::error:: annotation naming the real cause, and
+        # sets an output every later step (including the failure-notification step)
+        # can check without re-deriving it.
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
       - name: Checkout Aspose/aspose.org
         uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
-          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
           fetch-depth: 1
 
       - name: Set up Python
@@ -248,7 +285,7 @@ jobs:
         id: open_pr
         if: steps.summary.outputs.changed_files != '0'
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
           BASE_SHA=$(git rev-parse HEAD)
           BRANCH="seo/keyword-refresh-$(date +%Y%m%d)-${{ github.run_number }}"
@@ -315,7 +352,7 @@ jobs:
       - name: Auto-merge PR if all safety gates passed
         if: steps.summary.outputs.changed_files != '0' && steps.gates.outputs.passed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
           gh pr merge "${{ steps.open_pr.outputs.pr_number }}" --repo Aspose/aspose.org --squash --delete-branch
           echo "Auto-merged PR #${{ steps.open_pr.outputs.pr_number }} -- all safety gates passed." >> "$GITHUB_STEP_SUMMARY"
@@ -323,7 +360,7 @@ jobs:
       - name: Leave PR open for human review if any safety gate failed
         if: steps.summary.outputs.changed_files != '0' && steps.gates.outputs.passed != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
           gh pr comment "${{ steps.open_pr.outputs.pr_number }}" --repo Aspose/aspose.org \
             --body "One or more auto-merge safety gates FAILED -- left open for human review. See the \`Check auto-merge safety gates\` step in this workflow run's log for exactly which gate(s) failed."
@@ -332,3 +369,53 @@ jobs:
       - name: Skip PR - no keyword changes
         if: steps.summary.outputs.changed_files == '0'
         run: echo "No keyword files changed; skipping PR creation."
+
+      - name: Open or update a tracking issue if this run failed
+        # `if: failure()` runs this regardless of WHICH earlier step failed --
+        # token check, checkout, a Gemini/API error, anything. This is the fix
+        # for "most importantly, make it throw an error instead of silently
+        # failing" (2026-08-26): before this step existed, the 2026-08-09/16/23
+        # credential failures produced only a red X in the Actions tab -- no
+        # proactive signal anywhere, which is exactly how they went unnoticed
+        # for 3 weeks. One open issue is kept and commented on for repeat
+        # failures (never a new issue per failed week) so this can't itself
+        # become a source of weekly notification spam.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create seo-keyword-refresh-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "seo-keyword-refresh.yml run failed" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON (token_check step outcome; if this ran before the token check even executed, check the run log directly -- could be a Gemini/API error instead).
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-keyword-refresh-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "seo-keyword-refresh.yml is failing" \
+              --label seo-keyword-refresh-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        # Symmetry with the step above: a fixed run should say so, not leave a
+        # stale "still failing" issue open once the real problem is resolved.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-keyword-refresh-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
