@@ -1,3 +1,27 @@
+# seo-apply.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# Manual gate: takes a seo-analysis.yml run's artifacts (a patch manifest +
+# reports) and, on human dispatch, either previews the diff (dry_run: true,
+# the default) or applies it and opens a real content PR (dry_run: false).
+# Never runs on a schedule -- a human always chooses the artifact_run_id and
+# the dry_run value explicitly.
+#
+# Required secrets (set in Aspose/aspose.org-workflows):
+#   REPO_TOKEN      - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN        - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+#                     Fixed 2026-08-26 alongside seo-keyword-refresh.yml and
+#                     seo-analysis.yml: identical GH_TOKEN-primary `||` bug (GH_TOKEN
+#                     expired 2026-03-23). This workflow hadn't been dispatched since
+#                     2026-04-17 so it never visibly failed, but carried the same
+#                     latent defect at every token reference. All 4 flipped to
+#                     REPO_TOKEN-primary, plus the same pre-flight check and
+#                     failure-notification pattern as its 2 siblings.
+#
+# To trigger manually:
+#   Aspose/aspose.org-workflows -> Actions -> SEO Apply (Manual Gate) -> Run workflow
+
 name: SEO Apply (Manual Gate)
 
 on:
@@ -15,10 +39,28 @@ jobs:
   apply:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify GitHub token is valid
+        # See seo-keyword-refresh.yml's identical step for the full rationale.
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
       - uses: actions/checkout@v4
         with:
           repository: Aspose/aspose.org
-          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -32,7 +74,7 @@ jobs:
         with:
           name: seo-analysis-${{ inputs.artifact_run_id }}
           run-id: ${{ inputs.artifact_run_id }}
-          github-token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          github-token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
           repository: Aspose/aspose.org-workflows
           path: _artifacts
 
@@ -75,7 +117,7 @@ jobs:
         if: inputs.dry_run == 'false'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
           title: 'chore(seo): SEO frontmatter improvements [batch: ${{ inputs.artifact_run_id }}]'
           body: |
             ## SEO Frontmatter Improvements
@@ -94,5 +136,45 @@ jobs:
       - name: Trigger PR Arbiter review
         if: inputs.dry_run == 'false' && steps.create_pr.outputs.pull-request-number
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: gh workflow run seo-review.yml --repo Aspose/aspose.org-workflows
+
+      - name: Open or update a tracking issue if this run failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create seo-apply-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "seo-apply.yml run failed" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          artifact_run_id: ${{ inputs.artifact_run_id }}, dry_run: ${{ inputs.dry_run }}
+          Likely cause: $REASON (token_check step outcome; if this ran before the token check even executed, check the run log directly -- could be a missing/expired artifact instead).
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-apply-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "seo-apply.yml is failing" \
+              --label seo-apply-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-apply-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
