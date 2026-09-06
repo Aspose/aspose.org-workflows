@@ -1,0 +1,140 @@
+# seo-token-liveness.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# Independent daily liveness probe for REPO_TOKEN, GH_TOKEN, and GOOGLE_API_KEY --
+# decoupled from whether any of the 4 existing SEO pipeline workflows actually run
+# that day. Real incident this closes: REPO_TOKEN/GH_TOKEN silently expired
+# 2026-03-23 and went undetected until 2026-08-09 -- nearly 5 months -- because
+# nothing checked token validity independent of a scheduled pipeline run happening
+# to fire and fail loudly. The pre-flight `gh api user` check already added to the
+# other 4 workflows (seo-analysis.yml, seo-apply.yml, seo-keyword-refresh.yml,
+# seo-review.yml) is still reactive-on-next-run: a token that dies during a quiet
+# week with zero scheduled runs would still go undetected for the whole quiet
+# week. This workflow closes that gap: a dead credential is caught within 24
+# hours regardless of pipeline run cadence. See docs/reference/secrets-rotation.md
+# in Aspose/aspose.org for the full rotation runbook this failure body links to.
+#
+# Required secrets (already set in this repo for the other 4 workflows):
+#   REPO_TOKEN      - checked directly (not via the `||` fallback pattern the
+#                     other workflows use), so a failure names REPO_TOKEN
+#                     specifically rather than an ambiguous combined result.
+#   GH_TOKEN        - checked directly for the same reason. Missing GH_TOKEN
+#                     alone is a warning, not a failure, since it is fallback-only.
+#   GOOGLE_API_KEY  - checked via the Gemini ListModels endpoint, a metadata-only
+#                     call with zero generation cost (never a real content-generation
+#                     call, per this task's own design constraint).
+#
+# To trigger manually:
+#   Aspose/aspose.org-workflows -> Actions -> SEO Token Liveness Check -> Run workflow
+
+name: SEO Token Liveness Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # Daily 06:00 UTC -- independent of the 4 weekly pipeline workflows
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check REPO_TOKEN liveness
+        id: repo_token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::REPO_TOKEN secret is not set in Aspose/aspose.org-workflows."
+            echo "failed=REPO_TOKEN (missing)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::REPO_TOKEN is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "failed=REPO_TOKEN (invalid)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "REPO_TOKEN OK -- authenticated as $WHOAMI"
+
+      - name: Check GH_TOKEN liveness
+        id: gh_token_check
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::GH_TOKEN secret is not set -- only a real problem if REPO_TOKEN also failed above, since REPO_TOKEN is primary and GH_TOKEN is fallback-only."
+            exit 0
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GH_TOKEN is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "failed=GH_TOKEN (invalid)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "GH_TOKEN OK -- authenticated as $WHOAMI"
+
+      - name: Check GOOGLE_API_KEY liveness
+        id: google_key_check
+        if: always()
+        run: |
+          if [ -z "${{ secrets.GOOGLE_API_KEY }}" ]; then
+            echo "::error::GOOGLE_API_KEY secret is not set in Aspose/aspose.org-workflows."
+            echo "failed=GOOGLE_API_KEY (missing)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          HTTP_CODE=$(curl -s -o /tmp/gemini_check.json -w "%{http_code}" \
+            "https://generativelanguage.googleapis.com/v1/models?key=${{ secrets.GOOGLE_API_KEY }}")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::GOOGLE_API_KEY is set but rejected by the Gemini API (HTTP $HTTP_CODE) -- likely expired, revoked, or rate-limited. Response: $(cat /tmp/gemini_check.json)"
+            echo "failed=GOOGLE_API_KEY (HTTP $HTTP_CODE)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "GOOGLE_API_KEY OK -- ListModels call succeeded (metadata-only, zero generation cost)"
+
+      - name: Open or update a tracking issue if any check failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create seo-token-liveness-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "seo-token-liveness.yml detected a dead credential" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          FAILED="${{ steps.repo_token_check.outputs.failed }}${{ steps.gh_token_check.outputs.failed }}${{ steps.google_key_check.outputs.failed }}"
+          if [ -z "$FAILED" ]; then
+            FAILED="unknown -- see run log"
+          fi
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Secret(s) implicated: $FAILED
+
+          This is the independent daily liveness probe (SEO-TOKEN-LIVENESS-CHECK) --
+          decoupled from whether any of the 4 SEO pipeline workflows ran today. A dead
+          credential here means the affected secret needs rotation NOW, not on the next
+          scheduled pipeline run. Rotation runbook:
+          https://github.com/Aspose/aspose.org/blob/main/docs/reference/secrets-rotation.md
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-token-liveness-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "SEO token liveness check is failing" \
+              --label seo-token-liveness-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-token-liveness-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
