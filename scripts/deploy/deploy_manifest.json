@@ -9,8 +9,8 @@
     {
       "workflow": "blog.aspose.org.yml",
       "staging_trigger_time": "2026-09-12T08:24:23Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 34683184625,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
