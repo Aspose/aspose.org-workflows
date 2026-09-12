@@ -36,8 +36,8 @@
     {
       "workflow": "products.aspose.org.yml",
       "staging_trigger_time": "2026-09-12T08:24:43Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 34683203356,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
