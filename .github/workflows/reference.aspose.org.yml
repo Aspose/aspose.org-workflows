@@ -187,9 +187,18 @@ jobs:
             exit 1
           fi
           # A shard that rendered nothing must never silently "succeed" (bad synthesized
-          # config renders 0 pages and would deploy an empty set as green).
+          # config renders 0 pages and would deploy an empty set as green). Floor lowered
+          # 10 -> 3 (2026-09-12, imaging/net launch): this originally-fixed floor assumed
+          # every real family/platform has double-digit reference pages, which is false for
+          # a genuinely small, complete API -- imaging/net has exactly 3 public classes
+          # (ImageProbe/ImageInfo/ImageFormat, verified upstream-complete, not an extraction
+          # gap), so its correct render shape is family-index + platform-index + 3 classes =
+          # 5 pages, which the old floor of 10 wrongly rejected as "checkout is broken".
+          # 3 is the smallest structurally-valid shape (family index + platform index + >=1
+          # real page) and still catches the original near-zero-output failure mode this
+          # guard exists for.
           rendered=$(find public -name 'index.html' | wc -l)
-          if [ "$rendered" -lt 10 ]; then
+          if [ "$rendered" -lt 3 ]; then
             echo "::error title=Empty shard::only $rendered pages rendered for $fam -- synthesized config or checkout is broken"
             exit 1
           fi
