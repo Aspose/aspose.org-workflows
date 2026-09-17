@@ -1,0 +1,200 @@
+# upstream-monitor.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-06 (2026-09-17): seventh
+# live migration, and the most involved of the 4 PR-gated conversions --
+# see maven-publish-watcher.yml's header for the general PR-gated rationale
+# (same explicit user decision, 2026-09-17). Two things specific to this
+# workflow:
+#
+# 1. Only the final "Commit fleet snapshot + drift state" step actually
+#    writes anything (data/fleet_freshness_snapshot.json,
+#    data/upstream_drift_state.json) -- converted to a PR here, same as the
+#    other 3 bots. The "Bounded automatic regeneration" step remains
+#    observability-only (its own comment already says so in the private
+#    original) -- unchanged, no PR needed for it.
+# 2. check_upstream_drift.py's issue-filing defaults its --repo to the
+#    GITHUB_REPOSITORY env var, which GitHub Actions auto-sets to
+#    Aspose/aspose.org-workflows when running here -- WRONG for this
+#    workflow's real purpose. Passed --repo Aspose/aspose.org explicitly to
+#    correct this, rather than relying on the env-var override (GITHUB_* is
+#    a reserved/auto-injected variable; an explicit CLI flag is unambiguous).
+#
+# NOT FIXED, migration-independent (KNOWN, PROVEN EXTERNAL BLOCKER, unchanged
+# from the private original, tracked as issue #94): repo_patrol.py's sweep
+# needs a real PAT with read access to the aspose-*-foss orgs
+# (e.g. ASPOSE_FOSS_PAT) -- the ephemeral Actions token 403s against those
+# orgs regardless of which repo this workflow runs in. This step will keep
+# failing here exactly as it did privately, for the same unrelated reason --
+# not a migration regression. Resolving it is genuinely outside agent
+# authority (provisioning org-scoped credentials); core drift DETECTION
+# (the step above it) is unaffected.
+#
+# IMPORTANT (human-authority boundary, inherited repo-wide norm, MT062/MT066):
+# this workflow (and no automated process) may ever merge the PR it opens.
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones the SEO
+# templates and the other migrated bots already use -- not new exposure):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: Upstream Drift Monitor
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Monday 08:00 UTC -- matches the private original's cadence
+  workflow_dispatch: {}
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up venv
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install -q -r scripts/pipeline/requirements.txt
+
+      - name: Detect upstream drift (T9, deduped issue filing on the private Aspose/aspose.org repo)
+        id: drift
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          set +e
+          PYTHONPATH=scripts/pipeline python scripts/ci/checks/check_upstream_drift.py \
+            --file-issues --repo Aspose/aspose.org \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "drift_exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # KNOWN, PROVEN EXTERNAL BLOCKER, unchanged by migration -- see file header.
+      - name: Sweep drifted products (existing S-94 mechanism, now scheduled)
+        if: steps.drift.outputs.drift_exit == '1'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/diagnostics/repo_patrol.py sweep
+
+      - name: Persist fleet freshness snapshot (git-tracked, T5/T9)
+        if: steps.drift.outputs.drift_exit == '1'
+        run: |
+          PYTHONPATH=scripts/pipeline python - <<'PYEOF'
+          import json
+          from pathlib import Path
+          sweep = json.loads(Path("reports/discovery/sweep_report.json").read_text(encoding="utf-8"))
+          rows = {}
+          for e in sweep.get("changed", []) + sweep.get("unchanged", []):
+              key = f"{e['family']}/{e['platform']}"
+              rows[key] = {
+                  "repo_sha_cached": e.get("stored_sha") or e.get("sha"),
+                  "repo_sha_live": e.get("current_sha") or e.get("sha"),
+                  "impact": e.get("impact", "NONE"),
+                  "checked_at": sweep.get("generated_at"),
+              }
+          Path("data/fleet_freshness_snapshot.json").write_text(
+              json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PYEOF
+
+      - name: Bounded automatic regeneration (T10, LOW/MEDIUM only, capped) -- observability-only, unchanged
+        if: steps.drift.outputs.drift_exit == '1'
+        run: |
+          PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/ops/bounded_auto_regen.py select --json \
+            > /tmp/auto_regen_selection.json
+          cat /tmp/auto_regen_selection.json
+          # Same as the private original: read-only "select" mode, observability-only.
+          # Wiring its output into a live regen+commit loop is out of scope for this
+          # migration, unchanged from the private original's own deferred status.
+
+      - name: Open a PR with the fleet snapshot + drift state (instead of committing directly)
+        if: steps.drift.outputs.drift_exit == '1'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          title: 'chore(freshness): weekly upstream drift snapshot [migrated public execution]'
+          body: |
+            ## Weekly Upstream Drift Snapshot
+
+            Generated by `upstream-monitor.yml` running in
+            `Aspose/aspose.org-workflows` (migrated public execution -- MT069 PHB-06).
+            This workflow never merges its own PR -- a human review is required.
+
+            Note: the "Sweep drifted products" step upstream of this snapshot is
+            still affected by the known, unresolved PAT gap (issue #94 on
+            Aspose/aspose.org) -- unrelated to this migration, see this workflow's
+            own file header for detail.
+          branch: automated/upstream-monitor-freshness-snapshot
+          commit-message: 'chore(freshness): weekly upstream drift snapshot'
+          add-paths: |
+            data/fleet_freshness_snapshot.json
+            data/upstream_drift_state.json
+
+      - name: Fail the job if drift was found (surfaces in workflow status/notifications)
+        if: steps.drift.outputs.drift_exit == '1'
+        run: exit 1
+
+      - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
+        if: failure() && steps.drift.outputs.drift_exit != '1'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create upstream-monitor-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "upstream-monitor.yml run failed" 2>/dev/null || true
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON (this is for infra-level failures only -- a drift
+          finding itself is reported via the deduped issue on Aspose/aspose.org,
+          not here; the known PAT-gap sweep failure is also expected, not this).
+          EOF
+          )
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label upstream-monitor-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "upstream-monitor.yml is failing" \
+              --label upstream-monitor-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label upstream-monitor-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
