@@ -1,0 +1,168 @@
+# seo-weekly-analysis.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-06 (2026-09-17): third
+# live migration under this mission's public-repo migration track. Migrated
+# from the private original at Aspose/aspose.org's own
+# .github/workflows/seo-analysis.yml -- RENAMED to seo-weekly-analysis.yml
+# here because this repo already has an unrelated, pre-existing
+# seo-analysis.yml template (a different pipeline: keyword/content-inventory
+# analysis feeding seo-apply.yml/seo-review.yml). The private original is
+# kept in place at its own filename, flipped to workflow_dispatch-only --
+# not deleted, so rollback is a pure YAML revert with no data loss. See
+# dossiers/seo-analysis.md and design/public_execution_boundary.md in the
+# mission's evidence bundle for the full reasoning.
+#
+# Confirmed safe for public execution: runs scripts/seo/pipeline/
+# weekly_analysis.py against public content/SEO data only; writes only an
+# issue (retargeted here to the private Aspose/aspose.org repo, since it's a
+# real content-SEO finding a maintainer needs to act on there, not a report
+# about this workflow's own health) and an upload-artifact (this repo's own
+# artifact storage, not a content write).
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones the SEO
+# templates and the other 2 migrated bots already use -- not new exposure):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: SEO Weekly Analysis
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 09:00 UTC -- matches the private original's cadence
+  workflow_dispatch: {}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Set up venv
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install --quiet pyyaml
+
+      - name: Run weekly SEO analysis
+        id: analysis
+        run: python scripts/seo/pipeline/weekly_analysis.py
+
+      - name: Create or update tracking issue on noteworthy findings (on the private Aspose/aspose.org repo)
+        if: failure() && steps.analysis.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          # Explicit github-token override: the default `github.token` is scoped
+          # only to THIS repo (aspose.org-workflows); this issue belongs on the
+          # private content repo instead, so it needs the cross-repo token.
+          github-token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('reports/seo/weekly_analysis_summary.md', 'utf8');
+            const title = 'Weekly SEO analysis — action needed';
+
+            // Explicit owner/repo (NOT context.repo, which would resolve to
+            // aspose.org-workflows -- this issue must land on the private repo
+            // where the actual content-fix work happens).
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: 'Aspose',
+              repo: 'aspose.org',
+              state: 'open',
+              labels: 'seo-analysis',
+            });
+
+            const runLink = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const fullBody = `${body}\n\nTriggered by: [workflow run](${runLink}) (Aspose/aspose.org-workflows, migrated public execution -- MT069 PHB-06).`;
+
+            if (existing.length > 0) {
+              await github.rest.issues.update({
+                owner: 'Aspose',
+                repo: 'aspose.org',
+                issue_number: existing[0].number,
+                body: fullBody,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: 'Aspose',
+                repo: 'aspose.org',
+                title,
+                body: fullBody,
+                labels: ['seo-analysis'],
+              });
+            }
+
+      - name: Upload full analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-weekly-analysis
+          path: |
+            reports/seo/weekly_analysis_summary.json
+            reports/seo/weekly_analysis_summary.md
+          if-no-files-found: ignore
+
+      - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
+        if: failure() && steps.analysis.outcome != 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create seo-weekly-analysis-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "seo-weekly-analysis.yml run failed" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON (token_check step outcome; if analysis itself failed, see the issue on Aspose/aspose.org instead -- this is only for infra-level failures, e.g. checkout/token problems).
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-weekly-analysis-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "seo-weekly-analysis.yml is failing" \
+              --label seo-weekly-analysis-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label seo-weekly-analysis-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
