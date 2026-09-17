@@ -1,0 +1,160 @@
+# backlink-compliance-watch.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-06 (2026-09-17): second
+# live migration under this mission's public-repo migration track, following
+# the same proven pattern as aspose-com-targets-watch.yml (this repo's
+# canary). Migrated from the private original at Aspose/aspose.org's
+# .github/workflows/backlink-compliance-watch.yml (kept in place, flipped to
+# workflow_dispatch-only -- not deleted, so rollback is a pure YAML revert
+# with no data loss). Confirmed safe for public execution: audits public
+# content only, writes only an issue, and that issue is deliberately opened
+# on the PRIVATE Aspose/aspose.org repo (not here) since it's a real content
+# regression finding a maintainer needs to act on there. See
+# analysis/threat_assessment.md and dossiers/backlink-compliance-watch.md in
+# the mission's evidence bundle for the full reasoning.
+#
+# Known, deferred, non-blocking fragility (HP-06, static review): the
+# regression-check step consumes the audit step's output without checking
+# its outcome first -- if the audit step fails, the regression step may
+# crash with a less-clear error instead of skipping cleanly. The
+# issue-creation step still fires correctly either way (checks both steps'
+# outcome), so this does not block migration; not fixed here (out of scope
+# for this taskcard, tracked as a low-priority static-review finding).
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones the SEO
+# templates and the canary already use -- not new exposure):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: Backlink Compliance Watch (full-site regression ratchet)
+
+on:
+  schedule:
+    - cron: '0 11 * * *'  # daily 11:00 UTC -- matches the private original's cadence
+  workflow_dispatch: {}
+
+jobs:
+  check-backlink-compliance-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: scripts/pipeline/requirements-ci.txt
+
+      - name: Set up venv
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install -r scripts/pipeline/requirements-ci.txt --quiet
+
+      - name: Run full-site backlink audit
+        id: audit
+        continue-on-error: true
+        run: |
+          PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/ops/backlink_audit.py \
+            --output backlink-audit-results.json
+
+      - name: Check for backlink compliance regressions
+        id: regression
+        continue-on-error: true
+        run: |
+          python scripts/ci/checks/check_backlink_regression.py \
+            backlink-audit-results.json \
+            data/backlinks/baseline-compliance-counts.json
+
+      - name: Create issue on confirmed regression (on the private Aspose/aspose.org repo)
+        if: steps.audit.outcome == 'failure' || steps.regression.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          # Explicit github-token override: the default `github.token` is scoped
+          # only to THIS repo (aspose.org-workflows); this issue belongs on the
+          # private content repo instead, so it needs the cross-repo token.
+          github-token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const body = `## Backlink Compliance Regression — ${today}\n\n` +
+              (`${{ steps.audit.outcome }}` === 'failure'
+                ? 'The full-site backlink_audit.py run itself failed/crashed -- see the workflow log.\n'
+                : 'One or more families now have MORE blocking backlink-compliance violations ' +
+                  '(WRONG_TARGET / OVER_LIMIT / BLOCKED_TARGET / WRONG_ANCHOR_TEXT / DUPLICATE_LINK / ' +
+                  'DUPLICATE_SUBDOMAIN) than data/backlinks/baseline-compliance-counts.json records -- ' +
+                  'see the workflow log for the exact per-family diff.\n') +
+              '\nTo accept as known, update the baseline file with a documented reason. ' +
+              'To fix for real, run backlink_backfill.py.\n' +
+              `\n\nTriggered by: [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) (Aspose/aspose.org-workflows, migrated public execution -- MT069 PHB-06).`;
+            // Explicit owner/repo (NOT context.repo, which would resolve to
+            // aspose.org-workflows -- this issue must land on the private repo
+            // where the actual content-fix work happens).
+            await github.rest.issues.create({
+              owner: 'Aspose',
+              repo: 'aspose.org',
+              title: `Backlink compliance regression — ${today}`,
+              body: body,
+              labels: ['backlink-compliance-watch'],
+            });
+
+      - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create backlink-compliance-watch-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "backlink-compliance-watch.yml run failed" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON (token_check step outcome; if this ran before the token check even executed, check the run log directly).
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label backlink-compliance-watch-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "backlink-compliance-watch.yml is failing" \
+              --label backlink-compliance-watch-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label backlink-compliance-watch-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
