@@ -1,0 +1,39 @@
+# selfhosted-runner-smoke-test.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-07 (2026-09-17): a
+# manual-only, harmless health check for the self-hosted runner track
+# (design/self_hosted_architecture.md). Never touches any content, secret,
+# or the private Aspose/aspose.org repo -- exists purely to prove the
+# runner's machinery (WSL2 + Docker + a per-job container) actually works,
+# without needing to touch any of the 20 private, deliberately-disabled
+# workflows this mission may never enable or dispatch. Runs a container
+# (per the design's "fresh Docker container per job" model) rather than
+# directly on the runner host.
+#
+# Not scheduled -- workflow_dispatch only. Safe to leave in place as a
+# reusable health check for this runner going forward.
+
+name: Self-Hosted Runner Smoke Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke-test:
+    runs-on: [self-hosted, wsl2-linux, gha-selfhosted-test]
+    timeout-minutes: 5
+    container:
+      image: python:3.13-slim
+    steps:
+      - name: Report runner + container identity
+        run: |
+          echo "Hostname: $(hostname)"
+          echo "User: $(whoami)"
+          echo "Python: $(python --version)"
+          echo "This step ran inside a fresh per-job container on the self-hosted runner."
+
+      - name: Confirm no private-repo access from this job
+        run: |
+          echo "This job never checks out Aspose/aspose.org and carries no cross-repo token -- by design, a smoke test has no business touching private content."
