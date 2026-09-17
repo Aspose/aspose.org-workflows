@@ -1,34 +1,43 @@
 {
-  "scan_id": "20260916-090713",
-  "content_sha": "81f09e7c3563b1fc585cacf016c149e680c4085d",
+  "scan_id": "20260917-091457",
+  "content_sha": "73316872b8621256527daae058863b64705ddf74",
   "previous_sha": "ec5a71f804e5b6ec8ebefeaa04ccdcba523b5d3a",
-  "detected_at": "2026-09-16T09:07:13.374856+00:00",
+  "detected_at": "2026-09-17T09:14:57.582787+00:00",
   "global_change": false,
-  "state": "failed",
+  "state": "pending",
   "staged_workflows": [
     {
       "workflow": "blog.aspose.org.yml",
-      "staging_trigger_time": "2026-09-16T09:07:26Z",
-      "staging_run_id": 35077612843,
-      "staging_status": "failed",
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
     },
     {
       "workflow": "docs.aspose.org.yml",
-      "staging_trigger_time": "2026-09-16T09:07:32Z",
-      "staging_run_id": 35077624085,
-      "staging_status": "success",
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
+    },
+    {
+      "workflow": "kb.aspose.org.yml",
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
     },
     {
       "workflow": "reference.aspose.org.yml",
-      "staging_trigger_time": "2026-09-16T09:07:39Z",
-      "staging_run_id": 35077634836,
-      "staging_status": "success",
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -36,6 +45,6 @@
   ],
   "production_only_workflows": [],
   "completed_at": null,
-  "failed_at": "2026-09-16T10:43:50.119759+00:00",
-  "error": "Staging failed: blog.aspose.org.yml (conclusion: failure)"
+  "failed_at": null,
+  "error": null
 }
