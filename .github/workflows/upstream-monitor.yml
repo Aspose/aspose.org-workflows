@@ -21,15 +21,20 @@
 #    correct this, rather than relying on the env-var override (GITHUB_* is
 #    a reserved/auto-injected variable; an explicit CLI flag is unambiguous).
 #
-# NOT FIXED, migration-independent (KNOWN, PROVEN EXTERNAL BLOCKER, unchanged
-# from the private original, tracked as issue #94): repo_patrol.py's sweep
-# needs a real PAT with read access to the aspose-*-foss orgs
-# (e.g. ASPOSE_FOSS_PAT) -- the ephemeral Actions token 403s against those
-# orgs regardless of which repo this workflow runs in. This step will keep
-# failing here exactly as it did privately, for the same unrelated reason --
-# not a migration regression. Resolving it is genuinely outside agent
-# authority (provisioning org-scoped credentials); core drift DETECTION
-# (the step above it) is unaffected.
+# CORRECTED (MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, 2026-09-18): the
+# "Sweep drifted products" step's 100% fetch_failures was misdiagnosed for
+# months as a PAT/token permission gap against the aspose-*-foss orgs
+# (issue #94). That diagnosis was wrong -- direct source read of
+# repo_patrol.py's cmd_sweep() plus a live repro proved the real cause is a
+# pure filesystem check (clone_exists()) against runs/.clone_cache/, which is
+# gitignored and therefore never present on any fresh checkout of THIS repo
+# (Aspose/aspose.org, checked out above) -- zero token or network involvement,
+# and identical regardless of which repo (public or private) runs this
+# workflow. No PAT was ever needed. Fixed in Aspose/aspose.org commit
+# 72821fbb4a (cmd_sweep() now self-heals a cold cache via the pre-existing
+# ensure_clone(), a plain unauthenticated git clone) -- since this workflow
+# checks out Aspose/aspose.org fresh on every run, the next run here picks up
+# the fix automatically with no redeployment needed for the code itself.
 #
 # IMPORTANT (human-authority boundary, inherited repo-wide norm, MT062/MT066):
 # this workflow (and no automated process) may ever merge the PR it opens.
@@ -96,7 +101,8 @@ jobs:
           echo "drift_exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # KNOWN, PROVEN EXTERNAL BLOCKER, unchanged by migration -- see file header.
+      # Corrected 2026-09-18 -- see file header (never a PAT gap; fixed in
+      # Aspose/aspose.org commit 72821fbb4a, picked up automatically here).
       - name: Sweep drifted products (existing S-94 mechanism, now scheduled)
         if: steps.drift.outputs.drift_exit == '1'
         env:
@@ -146,10 +152,10 @@ jobs:
             `Aspose/aspose.org-workflows` (migrated public execution -- MT069 PHB-06).
             This workflow never merges its own PR -- a human review is required.
 
-            Note: the "Sweep drifted products" step upstream of this snapshot is
-            still affected by the known, unresolved PAT gap (issue #94 on
-            Aspose/aspose.org) -- unrelated to this migration, see this workflow's
-            own file header for detail.
+            Note: the "Sweep drifted products" step's prior fetch_failures were a
+            missing-clone-cache bug (not the PAT gap issue #94 originally
+            suspected) -- fixed in Aspose/aspose.org commit 72821fbb4a, see this
+            workflow's own file header for detail.
           branch: automated/upstream-monitor-freshness-snapshot
           commit-message: 'chore(freshness): weekly upstream drift snapshot'
           add-paths: |
@@ -174,7 +180,7 @@ jobs:
           Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
           Likely cause: $REASON (this is for infra-level failures only -- a drift
           finding itself is reported via the deduped issue on Aspose/aspose.org,
-          not here; the known PAT-gap sweep failure is also expected, not this).
+          not here).
           EOF
           )
           EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label upstream-monitor-failure --state open --json number --jq '.[0].number // empty')
