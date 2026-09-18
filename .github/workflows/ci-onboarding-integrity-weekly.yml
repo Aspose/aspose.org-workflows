@@ -1,0 +1,109 @@
+# ci-onboarding-integrity-weekly.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, partial-split migration
+# (2026-09-18, follow-up to PHB-06): the weekly-drift-catch schedule leg of
+# the private ci-eval-consistency.yml's `onboarding-integrity` job. That
+# workflow's OTHER job (`consistency`, the real eval-rerun test) stays
+# private -- it needs push/PR-triggered fast feedback on
+# scripts/pipeline/content_eval/** changes, which GitHub Actions cannot
+# deliver cross-repo. `onboarding-integrity` has no such constraint: it
+# only reads operator-onboarding docs (AGENTS.md, CLAUDE.md, RUNBOOK.md,
+# etc.) via check_onboarding_integrity.py, stdlib-only, read-only.
+#
+# Correction to an earlier characterization (2026-09-17 plan draft): the
+# private workflow's shared on: block includes this job unconditionally, so
+# it was NOT true that the weekly schedule was pure dead weight for the
+# whole workflow -- onboarding-integrity genuinely ran (and had real value)
+# on every scheduled trigger, even though the sibling `consistency` job
+# correctly no-ops on schedule. This split preserves that real value while
+# letting the schedule leg move off the private allowance.
+#
+# Offset to Monday 06:15 UTC (not 06:00) to avoid an exact collision with
+# this repo's own seo-analysis.yml, which already occupies Monday 06:00 UTC.
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones the other
+# migrated bots already use -- not new exposure):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: Onboarding Integrity Check (weekly)
+
+on:
+  schedule:
+    - cron: '15 6 * * 1'  # Monday 06:15 UTC -- offset from seo-analysis.yml's 06:00
+  workflow_dispatch: {}
+
+jobs:
+  onboarding-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run onboarding integrity check
+        # Reads only stdlib (re, subprocess, sys, pathlib) -- no pip install needed,
+        # matches the private original exactly.
+        run: python scripts/ci/checks/check_onboarding_integrity.py
+
+      - name: Open or update a tracking issue if this run failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create onboarding-integrity-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "ci-onboarding-integrity-weekly.yml run failed" 2>/dev/null || true
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'onboarding integrity check itself failed -- see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON
+          EOF
+          )
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label onboarding-integrity-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "ci-onboarding-integrity-weekly.yml is failing" \
+              --label onboarding-integrity-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label onboarding-integrity-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi

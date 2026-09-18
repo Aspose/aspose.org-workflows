@@ -1,0 +1,87 @@
+# launch-dashboard-weekly.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, partial-split migration
+# (2026-09-18, follow-up to PHB-06): the schedule leg of the private
+# launch-dashboard.yml. The push-triggered leg CANNOT move here -- GitHub
+# Actions has no cross-repo push trigger, so fast feedback on a relevant
+# file change must stay in Aspose/aspose.org (see the private original's
+# own comment). This scheduled leg has no such constraint.
+#
+# Named differently from the private original (launch-dashboard.yml) to
+# avoid any confusion with the push-triggered original, and offset to
+# Monday 09:15 UTC (not 09:00) to avoid an exact collision with this repo's
+# own seo-weekly-analysis.yml, which already occupies Monday 09:00 UTC --
+# the same collision this migration would otherwise silently reproduce.
+#
+# Corrected finding (2026-09-18): the private original's dossier previously
+# classified this workflow REQUIRES_REDESIGN based on an unverified "missing
+# pip install" theory. Verified live: launch_dashboard.py has zero
+# third-party dependencies and runs correctly in a bare venv -- its 100%
+# exit-1 rate is the script correctly reporting real, persistent coverage
+# gaps, not a crash. No fix needed; migrated as-is.
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones the other
+# migrated bots already use -- not new exposure):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: Launch Dashboard (weekly)
+
+on:
+  schedule:
+    - cron: '15 9 * * 1'  # Monday 09:15 UTC -- offset from seo-weekly-analysis.yml's 09:00
+  workflow_dispatch: {}
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run launch dashboard
+        # No pip install: launch_dashboard.py has zero third-party dependencies
+        # (verified live, 2026-09-18) -- matches the private original exactly.
+        run: python scripts/pipeline/commands/diagnostics/launch_dashboard.py --ci
+
+      - name: Open or update a tracking issue if this run itself failed to execute (on this repo, matching SEO-template convention)
+        # Distinct from the dashboard's own --ci exit code (a real coverage-gap
+        # finding, expected and not an infra failure) -- this only fires for
+        # earlier steps (token/checkout) failing.
+        if: failure() && steps.token_check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create launch-dashboard-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "launch-dashboard-weekly.yml infra failure" 2>/dev/null || true
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue create --repo Aspose/aspose.org-workflows \
+            --title "launch-dashboard-weekly.yml token/checkout failure" \
+            --label launch-dashboard-failure \
+            --body "Run failed before the dashboard could even execute: $RUN_URL"
