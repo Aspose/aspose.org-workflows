@@ -1,0 +1,195 @@
+# runner-availability-watch.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, card HC-04 (2026-09-18).
+#
+# WHY: GitHub queues a job indefinitely when no runner matching its labels is online. For a
+# push-triggered check running on a self-hosted runner that lives on a laptop-class machine, that
+# looks like a hung commit status with NO signal anywhere. This watch runs on GitHub-hosted
+# infrastructure (free in a public repo), so it keeps working exactly when the self-hosted runner
+# does not.
+#
+# WHAT IT DOES (read-only against Aspose/aspose.org; writes only to issues on THIS repo):
+#   1. Reads the runners of Aspose/aspose.org and checks that one carrying the watched label
+#      (default `gha-private-native`) is `online`.
+#   2. Counts private-repo runs that have been `queued` longer than a threshold.
+#   3. If either is wrong the job FAILS (so the run history itself shows it) and, once the
+#      condition has been seen on two consecutive checks (debounce, so a machine that merely
+#      slept for one hour does not page anyone), opens ONE deduped issue labelled
+#      `runner-offline` -- or comments on the open one. When the condition clears it closes it.
+#
+# ALERT-ONLY INVARIANT (this mission's core design rule): this workflow NEVER disables, enables,
+# dispatches, cancels or reconfigures anything. Auto-disabling was the blunt instrument that
+# caused this mission to exist.
+#
+# THRESHOLDS ARE PROPOSALS, not measured facts: hourly check, 2 consecutive failures (~1-2 h),
+# 20 minutes queued. Tune them from real data once the runner carries real load.
+#
+# DEBOUNCE WITHOUT STATE: a GitHub-hosted runner keeps nothing between runs, so "consecutive" is
+# read from this workflow's own previous completed run (its conclusion), not from a file.
+#
+# CONTROL TEST: dispatch with runner_label=<a label that does not exist> and debounce=false to
+# prove the alert path; dispatch again with defaults to prove the recovery path.
+#
+# Required secret (already used by every migrated workflow here): REPO_TOKEN -- a PAT whose owner
+# has admin access to Aspose/aspose.org (listing a repo's runners needs it).
+
+name: Runner Availability Watch
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # hourly, at :17
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: 'Custom runner label to watch (control test: use one that does not exist)'
+        required: false
+        default: 'gha-private-native'
+      debounce:
+        description: 'true = alert only if the previous check also failed; false = alert immediately (control tests)'
+        required: false
+        default: 'true'
+      max_queue_minutes:
+        description: 'A private-repo run queued longer than this many minutes counts as stuck'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+  issues: write
+  actions: read   # `gh run list` in the debounce step reads this repo's own run history
+
+concurrency:
+  group: runner-availability-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TARGET_REPO: Aspose/aspose.org
+      ALERT_REPO: Aspose/aspose.org-workflows
+      LABEL: ${{ github.event.inputs.runner_label || 'gha-private-native' }}
+      DEBOUNCE: ${{ github.event.inputs.debounce || 'true' }}
+      MAX_QUEUE_MIN: ${{ github.event.inputs.max_queue_minutes || '20' }}
+    steps:
+      - name: Read the target repo's runners
+        id: runners
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::REPO_TOKEN is not set in Aspose/aspose.org-workflows."
+            echo "status=api_error" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          if ! JSON=$(gh api "repos/$TARGET_REPO/actions/runners" 2>&1); then
+            echo "::error::Cannot list runners of $TARGET_REPO (REPO_TOKEN lacks repo-admin access, or the API failed): $JSON"
+            echo "status=api_error" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          MATCH=$(echo "$JSON"  | jq -r --arg l "$LABEL" '[.runners[] | select(any(.labels[]; .name == $l))] | length')
+          ONLINE=$(echo "$JSON" | jq -r --arg l "$LABEL" '[.runners[] | select(any(.labels[]; .name == $l)) | select(.status == "online")] | length')
+          echo "label=$LABEL matching_runners=$MATCH online=$ONLINE"
+          {
+            echo "matching=$MATCH"
+            echo "online=$ONLINE"
+            if [ "$ONLINE" -ge 1 ]; then echo "status=online"; else echo "status=offline"; fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Count stuck queued runs on the target repo
+        id: queue
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          if ! JSON=$(gh api "repos/$TARGET_REPO/actions/runs?status=queued&per_page=100" 2>&1); then
+            echo "::warning::Could not list queued runs: $JSON"
+            echo "stale=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          NOW=$(date -u +%s)
+          STALE=$(echo "$JSON" | jq -r --argjson now "$NOW" --argjson max "$MAX_QUEUE_MIN" \
+            '[.workflow_runs[] | select((($now - (.created_at | fromdateiso8601)) / 60) > $max)] | length')
+          echo "queued_longer_than_${MAX_QUEUE_MIN}min=$STALE"
+          echo "stale=$STALE" >> "$GITHUB_OUTPUT"
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNNER_STATUS: ${{ steps.runners.outputs.status }}
+          MATCHING: ${{ steps.runners.outputs.matching }}
+          STALE: ${{ steps.queue.outputs.stale }}
+        run: |
+          PROBLEM=""
+          if [ "$RUNNER_STATUS" != "online" ]; then
+            PROBLEM="No runner labelled '$LABEL' is online on $TARGET_REPO (matching runners: ${MATCHING:-0})."
+          fi
+          if [ "${STALE:-0}" -gt 0 ]; then
+            PROBLEM="$PROBLEM ${STALE} run(s) on $TARGET_REPO have been queued for more than ${MAX_QUEUE_MIN} minutes."
+          fi
+          PROBLEM=$(echo "$PROBLEM" | sed 's/^ *//')
+          echo "problem=$PROBLEM" >> "$GITHUB_OUTPUT"
+
+          # Previous COMPLETED run of this workflow (never the current one): was it a failure too?
+          PREV=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow runner-availability-watch.yml --limit 10 \
+                   --json databaseId,status,conclusion \
+                   --jq "[.[] | select(.status==\"completed\" and .databaseId != ${GITHUB_RUN_ID})][0].conclusion // \"none\"")
+          echo "previous_conclusion=$PREV"
+          if [ -z "$PROBLEM" ]; then
+            echo "alert=recover" >> "$GITHUB_OUTPUT"
+          elif [ "$DEBOUNCE" = "false" ] || [ "$PREV" = "failure" ]; then
+            echo "alert=raise" >> "$GITHUB_OUTPUT"
+          else
+            echo "alert=wait" >> "$GITHUB_OUTPUT"
+            echo "::warning::$PROBLEM (first observation; will alert if the next check sees it too)"
+          fi
+
+      - name: Open or update the alert issue
+        if: steps.decide.outputs.alert == 'raise'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBLEM: ${{ steps.decide.outputs.problem }}
+        run: |
+          gh label create runner-offline --repo "$ALERT_REPO" --color d73a4a \
+            --description "runner-availability-watch.yml: a self-hosted runner is offline or jobs are stuck queued" 2>/dev/null || true
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          BODY=$(cat <<EOF
+          $PROBLEM
+
+          Run: $RUN_URL
+          Checked at: $(date -u +%Y-%m-%dT%H:%M:%SZ)  (label watched: \`$LABEL\`)
+
+          What this means: jobs whose \`runs-on\` needs this label wait indefinitely -- for a push-triggered
+          check that shows as a hung commit status. Nothing has been disabled or changed by this alert.
+          Usual causes: the machine is off/asleep, WSL stopped, or the runner service died.
+          Check on the host: \`ps aux | grep Runner.Listener\`.
+          EOF
+          )
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label runner-offline --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" --body "$BODY"
+          else
+            gh issue create --repo "$ALERT_REPO" --label runner-offline \
+              --title "Self-hosted runner is offline or jobs are stuck queued" --body "$BODY"
+          fi
+
+      - name: Close the alert issue once the condition clears
+        if: steps.decide.outputs.alert == 'recover'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label runner-offline --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" \
+              --body "Recovered: a runner labelled '$LABEL' is online and nothing is stuck. (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            gh issue close "$EXISTING" --repo "$ALERT_REPO"
+          fi
+
+      - name: Fail the run if there is a problem (so the run history shows it, and the next check can debounce)
+        if: steps.decide.outputs.problem != ''
+        env:
+          PROBLEM: ${{ steps.decide.outputs.problem }}
+        run: |
+          # via env, never interpolated into the script: LABEL comes from a dispatch input
+          echo "::error::$PROBLEM"
+          exit 1
