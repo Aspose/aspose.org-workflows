@@ -1,0 +1,157 @@
+# workflow-drift-watch.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, card HC-09 (2026-09-18).
+#
+# WHY: scripts/ci/checks/check_workflow_drift.py keeps 17 workflow templates honest against their
+# hand-deployed copies in this repo -- but until now NOTHING ran it: no workflow, hook or gate called
+# it (its only callers were its own tests), so `DEPLOYED_UNAPPROVED` / `DIVERGED` could sit unseen
+# indefinitely. An advisory script is not a gate. This is the gate: it runs the checker daily,
+# GitHub-hosted (free in a public repo), and turns real drift into ONE deduped issue.
+#
+# WHAT IT DOES (read-only against Aspose/aspose.org; writes only to issues on THIS repo):
+#   1. Sparse-checks-out just the checker, the two template directories and the baseline file from
+#      the private repo (never the content tree).
+#   2. Runs `check_workflow_drift.py --no-seed` (a CI run must never seed or rewrite a baseline).
+#   3. exit 0 -> clean; closes an open `workflow-drift` issue.
+#      exit 1 -> real drift (DEPLOYED_UNAPPROVED / DIVERGED): opens or updates ONE issue.
+#      exit 3 -> nothing confirmed but a lookup failed even after the checker's own retries
+#                (UNRESOLVED): the run fails so the history shows the blind spot, but no issue --
+#                a network blip is not drift, and tomorrow's run re-checks.
+#      exit 2 -> configuration problem: the run fails.
+#
+# ALERT-ONLY INVARIANT: never approves, deploys, reverts or edits anything. Approval stays a human
+# act (`--approve NAME --reason "..."`, which refuses unless the deployed copy equals the reviewed
+# local template).
+#
+# CONTROL TEST: dispatch with scratch_baseline_control=true. It builds a scratch baseline in the
+# runner's temp dir with ONE entry's hash deliberately wrong and points the checker at it with
+# --baselines (which never seeds and never writes) -- proving the alert path without touching the
+# real baseline or any deployed file.
+#
+# Required secret (already used by every migrated workflow here): REPO_TOKEN.
+
+name: Workflow Drift Watch
+
+on:
+  schedule:
+    - cron: '23 5 * * *'   # daily, 05:23 UTC
+  workflow_dispatch:
+    inputs:
+      scratch_baseline_control:
+        description: 'CONTROL TEST ONLY: check against a scratch baseline with one deliberately wrong hash (proves the alert path). true/false'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: workflow-drift-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ALERT_REPO: Aspose/aspose.org-workflows
+      CONTROL: ${{ github.event.inputs.scratch_baseline_control || 'false' }}
+    steps:
+      - name: Check out only what the checker needs (private repo, sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/checks/check_workflow_drift.py
+            scripts/ci/deployed-workflows
+            scripts/seo/workflows
+            data/workflow_deploy_baselines.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run the drift check
+        id: drift
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          set +e
+          ARGS="--no-seed"
+          if [ "$CONTROL" = "true" ]; then
+            SCRATCH="$RUNNER_TEMP/scratch_baselines.json"
+            python - "$SCRATCH" <<'PY'
+          import json, sys
+          d = json.load(open("data/workflow_deploy_baselines.json", encoding="utf-8"))
+          first = sorted(d)[0]
+          d[first]["approved_baseline_sha256"] = "0" * 64
+          json.dump(d, open(sys.argv[1], "w", encoding="utf-8"))
+          print("CONTROL: scratch baseline written with a deliberately wrong hash for", first)
+          PY
+            ARGS="--baselines $SCRATCH"
+          fi
+          python scripts/ci/checks/check_workflow_drift.py $ARGS 2>&1 | tee "$RUNNER_TEMP/drift.txt"
+          RC=${PIPESTATUS[0]}
+          echo "exit=$RC" >> "$GITHUB_OUTPUT"
+          echo "drift_exit_code=$RC"
+          exit 0
+
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.exit == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create workflow-drift --repo "$ALERT_REPO" --color d73a4a \
+            --description "workflow-drift-watch.yml: a deployed workflow no longer matches its reviewed template/baseline" 2>/dev/null || true
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "check_workflow_drift.py found drift between the reviewed templates in Aspose/aspose.org and the deployed workflows here."
+            [ "$CONTROL" = "true" ] && echo && echo "**This was a CONTROL TEST against a scratch baseline -- nothing is actually wrong.**"
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo '```'
+            head -60 "$RUNNER_TEMP/drift.txt"
+            echo '```'
+            echo
+            echo "- \`DEPLOYED_UNAPPROVED\`: the live file changed outside the reviewed deploy path. Diff it against the template; if it is right, bring the template in line, then \`--approve NAME --reason \"...\"\` (refuses unless deployed == template)."
+            echo "- \`DIVERGED\`: the template was edited but not deployed (or the live file is missing). Deploy it, or revert the edit."
+            echo "Nothing has been changed by this alert."
+          } > "$RUNNER_TEMP/body.md"
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label workflow-drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$ALERT_REPO" --label workflow-drift \
+              --title "Deployed workflow drift detected" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+      - name: Close the drift issue once everything is in sync
+        if: steps.drift.outputs.exit == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label workflow-drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" \
+              --body "Resolved: every workflow is IN_SYNC. (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            gh issue close "$EXISTING" --repo "$ALERT_REPO"
+          fi
+
+      - name: Fail the run unless the check was clean (so the history shows drift and blind spots)
+        if: steps.drift.outputs.exit != '0'
+        env:
+          EXIT: ${{ steps.drift.outputs.exit }}
+        run: |
+          case "$EXIT" in
+            1) echo "::error::Drift detected -- see the issue and the step log." ;;
+            3) echo "::error::UNRESOLVED: could not read one or more deployed workflows even after retries (no confirmed drift)." ;;
+            *) echo "::error::check_workflow_drift.py exited $EXIT (configuration problem)." ;;
+          esac
+          exit 1
