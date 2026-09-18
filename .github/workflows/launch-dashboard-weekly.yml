@@ -15,12 +15,23 @@
 # own seo-weekly-analysis.yml, which already occupies Monday 09:00 UTC --
 # the same collision this migration would otherwise silently reproduce.
 #
-# Corrected finding (2026-09-18): the private original's dossier previously
-# classified this workflow REQUIRES_REDESIGN based on an unverified "missing
-# pip install" theory. Verified live: launch_dashboard.py has zero
-# third-party dependencies and runs correctly in a bare venv -- its 100%
-# exit-1 rate is the script correctly reporting real, persistent coverage
-# gaps, not a crash. No fix needed; migrated as-is.
+# CORRECTED AGAIN, SAME DAY (2026-09-18): the first correction here (assuming
+# "no fix needed, migrated as-is") was itself wrong -- caught by actually
+# dispatching this on a genuinely fresh checkout instead of trusting a local
+# working-directory test. Real result: `Total: 33 products | READY: 0 |
+# NOT READY: 0 | NO REPORT: 33 | Gaps: 99`. Root cause: launch_dashboard.py's
+# real inputs (reports/phase_state.json, reports/human-review/**,
+# reports/**/readiness.md) are gitignored, cumulative, LOCK-protected local
+# state built up by project_phase_store.py over many separate local
+# operations -- NEVER available in any fresh checkout, public or private,
+# self-hosted or GitHub-hosted. This is not a hosting-location problem and
+# migration cannot fix it. 3 of the private original's 5 push-trigger path
+# filters also target these same gitignored paths and can structurally
+# never fire (git push cannot diff an untracked file). Schedule removed
+# below -- workflow_dispatch kept as an available-but-not-automated manual
+# diagnostic, since an unattended weekly run here would only ever produce a
+# misleading "Gaps: 99" signal with no actionable content. See
+# dossiers/launch-dashboard.md for the full corrected analysis.
 #
 # Required secrets (set in Aspose/aspose.org-workflows, same ones the other
 # migrated bots already use -- not new exposure):
@@ -30,8 +41,6 @@
 name: Launch Dashboard (weekly)
 
 on:
-  schedule:
-    - cron: '15 9 * * 1'  # Monday 09:15 UTC -- offset from seo-weekly-analysis.yml's 09:00
   workflow_dispatch: {}
 
 jobs:
