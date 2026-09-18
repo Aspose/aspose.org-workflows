@@ -19,8 +19,10 @@
 #   REPO_TOKEN      - checked directly (not via the `||` fallback pattern the
 #                     other workflows use), so a failure names REPO_TOKEN
 #                     specifically rather than an ambiguous combined result.
-#   GH_TOKEN        - checked directly for the same reason. Missing GH_TOKEN
-#                     alone is a warning, not a failure, since it is fallback-only.
+#   GH_TOKEN        - checked directly for the same reason. Missing OR DEAD
+#                     GH_TOKEN alone is a warning, not a failure, since it is
+#                     fallback-only (MT069 HC-07, 2026-09-18: a dead one used to
+#                     fail the probe daily -- see the step's own comment).
 #   GOOGLE_API_KEY  - checked via the Gemini ListModels endpoint, a metadata-only
 #                     call with zero generation cost (never a real content-generation
 #                     call, per this task's own design constraint).
@@ -56,20 +58,33 @@ jobs:
           fi
           echo "REPO_TOKEN OK -- authenticated as $WHOAMI"
 
-      - name: Check GH_TOKEN liveness
+      # MT069 HC-07 (2026-09-18): GH_TOKEN is FALLBACK-ONLY, so a dead one is an
+      # advisory, not a failure. This step used to `exit 1` on a set-but-rejected
+      # GH_TOKEN even though the header (and the missing-secret branch) already
+      # said fallback-only problems are warnings -- so a dead fallback paged this
+      # probe every day from 2026-09-06 (issue #43, 13 comments), burying any real
+      # REPO_TOKEN / GOOGLE_API_KEY failure behind a permanently red run. It is
+      # still checked and still surfaced (annotation + step summary), just not
+      # failed. Also worth knowing: `secrets.REPO_TOKEN || secrets.GH_TOKEN` only
+      # falls through when REPO_TOKEN is EMPTY, never when it is set-but-invalid,
+      # so this fallback could not have rescued a dead REPO_TOKEN in any case.
+      # Human action when convenient (not needed for anything to work): delete the
+      # orphaned GH_TOKEN secret, or rotate it if a fallback is wanted.
+      - name: Check GH_TOKEN liveness (fallback-only -- advisory, never fails the probe)
         id: gh_token_check
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::GH_TOKEN secret is not set -- only a real problem if REPO_TOKEN also failed above, since REPO_TOKEN is primary and GH_TOKEN is fallback-only."
+            echo "::warning::GH_TOKEN secret is not set -- fine while REPO_TOKEN is live, since GH_TOKEN is fallback-only."
             exit 0
           fi
           if ! WHOAMI=$(gh api user --jq .login 2>&1); then
-            echo "::error::GH_TOKEN is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
-            echo "failed=GH_TOKEN (invalid)" >> "$GITHUB_OUTPUT"
-            exit 1
+            echo "::warning::GH_TOKEN is set but rejected by the GitHub API (expired/revoked) -- a DEAD fallback-only credential. Advisory only: workflows read REPO_TOKEN first. Delete or rotate the orphaned secret when convenient. Real error: $WHOAMI"
+            echo "### Advisory: GH_TOKEN is dead (fallback-only)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Not a failure -- REPO_TOKEN is the primary credential. Delete or rotate the orphaned GH_TOKEN secret when convenient." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           echo "GH_TOKEN OK -- authenticated as $WHOAMI"
 
