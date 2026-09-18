@@ -307,10 +307,11 @@ The `GH_TOKEN` / `REPO_TOKEN` must have:
 3. The workflow maps them to env vars:
    ```yaml
    env:
-     GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.REPO_TOKEN }}
+     GITHUB_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
      GPT_OSS_ENDPOINT: ${{ secrets.GPT_OSS_ENDPOINT }}
      GPT_OSS_API_KEY: ${{ secrets.GPT_OSS_API_KEY }}
    ```
+   **Order matters (MT069 HC-07, 2026-09-18):** keep `REPO_TOKEN` first. `a || b` falls through only when `a` is *empty*, never when it is set-but-invalid, so a dead `GH_TOKEN` in first position silently wins and every call 401s (a real 3-week outage on `seo-keyword-refresh.yml`, 2026-08-09..23; `GH_TOKEN` is dead again as of 2026-09-06).
 
 ---
 
