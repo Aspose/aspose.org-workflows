@@ -14,6 +14,17 @@
 #
 # Not scheduled -- workflow_dispatch only. Safe to leave in place as a
 # reusable health check for this runner going forward.
+#
+# STATUS NOTE (2026-09-18, MT069 HC-03/HC-06): this PASSED on 2026-09-17 (run
+# 35254438051) while the runner was started from an interactive shell, and now
+# FAILS at job setup with `docker: command not found` (run 35381073902): once the
+# runner became a systemd service it stopped inheriting the shell's PATH, and
+# the PATH captured in <runner>/.path has no Docker directory. So the "fresh
+# container per job" model this file demonstrates is NOT currently working;
+# the private jobs run host-direct. See selfhosted-host-probe.yml for what a
+# host-direct job can actually see, and docs/operations/self-hosted-runner-setup.md
+# ("Isolation model") for the decision. Kept as the check to re-run if
+# container-per-job is ever adopted.
 
 name: Self-Hosted Runner Smoke Test
 
