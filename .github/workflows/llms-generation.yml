@@ -1,0 +1,153 @@
+# llms-generation.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, card HC-22 (2026-09-19), on the maintainer's instruction that
+# this workflow "has to go to the public repo".
+#
+# WHY IT CAN MOVE: the private original regenerated llms-output/ and then discarded it. It commits nothing,
+# deploys nothing, uploads no artifact and uses no secret: deployment happens in this repository's per-site
+# workflows, which run the generator again at deploy time. What the private run really gave was "the
+# generator did not crash on this change" -- 259 of 1,494 minutes (17.3%) for that one signal. Here the
+# minutes are free.
+#
+# WHAT CHANGES vs the private original (the tradeoffs, stated):
+#   * It is scheduled (daily) and dispatchable, not per-push: a public repo cannot be triggered by a push to
+#     the private one. A generator crash is now seen within a day instead of within minutes; the deploy
+#     workflows would fail on the same crash anyway.
+#   * It always does a FULL regeneration. The private version scoped regeneration to the changed subdomain to
+#     save minutes; minutes are free here, and a full run is the same work the deploy workflows do.
+#   * The "Stale check gate" is carried over UNCHANGED and is still structurally vacuous (its manifest is
+#     rebuilt immediately before it is checked -- card HC-12). It proves the generator ran to completion; it
+#     does not detect drift. Do not read a green run as drift detection.
+#   * This repo is public, so the run log is public. Site content is already public; the issue text carries
+#     only a commit SHA and the run link.
+#
+# ALERT-ONLY INVARIANT: this never edits, disables, enables or dispatches anything in either repo.
+#
+# Required secret (already used by every migrated workflow here): REPO_TOKEN (read access to the private repo).
+# The checkout does not persist the token into the workspace.
+
+name: LLMs Output Regeneration (smoke test)
+
+on:
+  schedule:
+    - cron: '11 4 * * *'   # daily, 04:11 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or full SHA of Aspose/aspose.org to regenerate from'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: llms-generation
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REF_INPUT: ${{ github.event.inputs.ref || 'main' }}
+      ALERT_REPO: ${{ github.repository }}
+    steps:
+      - name: Validate the ref input (it reaches a shell, so it is checked, never interpolated)
+        id: cfg
+        run: |
+          case "$REF_INPUT" in ''|*[!A-Za-z0-9._/-]*) echo "::error::ref may only contain letters, digits, . _ / -"; exit 2 ;; esac
+          echo "ref=$REF_INPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the private repo at the requested ref
+        id: co
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          ref: ${{ steps.cfg.outputs.ref }}
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up virtual environment
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install pyyaml --quiet
+
+      - name: Regenerate all subdomains (hierarchical mode)
+        run: |
+          echo "tested commit: $(git rev-parse HEAD)"
+          .venv/bin/python scripts/generator/llms-generator.py \
+            --input content \
+            --output llms-output \
+            --all-subdomains \
+            --mode hierarchical \
+            --mapping scripts/generator/mapping.json \
+            --clean-output
+
+      - name: Update provenance manifest
+        run: |
+          .venv/bin/python scripts/generator/detect_stale_llms.py \
+            --llms-output llms-output \
+            --content content \
+            --update-manifest
+
+      - name: Stale check gate (fail if any stale or missing) -- proves the generator completed, NOT drift (HC-12)
+        run: |
+          .venv/bin/python scripts/generator/detect_stale_llms.py \
+            --check-only
+
+      - name: Update txt inventory
+        run: |
+          .venv/bin/python scripts/generator/build_txt_inventory.py
+
+      - name: Summary
+        run: |
+          echo "=== LLMs Regeneration Summary (smoke test) ==="
+          echo "Mode: all subdomains, hierarchical; tested commit $(git rev-parse HEAD)"
+          echo "Stale check: PASS (generator completed; this is not drift detection)"
+          echo "Inventory: updated"
+
+      - name: Open or update the alert issue (a step failed)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create llms-generation-red --repo "$ALERT_REPO" --color d73a4a \
+            --description "llms-generation.yml: the llms generator failed on the private repo's content" 2>/dev/null || true
+          SHA=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The llms generator failed against Aspose/aspose.org at \`${SHA}\`."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "The per-site deploy workflows in this repository run the same generator at deploy time and would fail on the same cause. Nothing has been changed automatically."
+          } > "$RUNNER_TEMP/body.md"
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label llms-generation-red --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$ALERT_REPO" --label llms-generation-red \
+              --title "llms generation is failing" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+      - name: Close the alert issue once generation passes
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label llms-generation-red --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" \
+              --body "Resolved: llms generation passes. (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            gh issue close "$EXISTING" --repo "$ALERT_REPO"
+          fi
