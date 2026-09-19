@@ -1,0 +1,169 @@
+# workflow-cost-telemetry.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, card HC-05 (finishes PHB-03), 2026-09-19.
+#
+# WHY: the cost circuit breaker (scripts/pipeline/lib/workflow_cost_circuit_breaker.py) and its CLI
+# (scripts/pipeline/commands/ops/workflow_usage_collect_and_check.py) were built, tested and committed, but
+# nothing ever ran them: "telemetry" that runs only when someone remembers is not telemetry. This is the
+# recurring run. GitHub-hosted in a PUBLIC repo, so the collector itself costs no private minutes.
+#
+# WHAT IT DOES (read-only against Aspose/aspose.org; alerts are the only write):
+#   1. Restores the rolling history from the previous successful run's artifact. History has to be carried
+#      somewhere: a CI runner is stateless, the default history file lives under gitignored reports/, and
+#      without persistence the anomaly baseline can never leave its warm-up.
+#   2. Sparse-checks-out ONLY the collector, its four library/ledger modules and the budget config from the
+#      private repo (never the content tree).
+#   3. Collects the last N days of runs+jobs of Aspose/aspose.org, reconstructs billable minutes, checks them
+#      against the (scaled, PROVISIONAL) static caps and the rolling-baseline anomaly check, and checks the CI
+#      health of the required checks and of upstream-monitor.yml.
+#   4. LIVE only: records the period into the history and opens/updates ONE alert issue per kind in the
+#      PRIVATE repo. A dry run prints the verdicts and changes nothing.
+#   5. Uploads the history file as an artifact for the next run.
+#
+# PRIVACY: this repo is public. Workflow names and per-workflow minutes of a private repo must not appear in
+# its logs, its issues or its artifacts, so: alerts default to the private repo (the CLI's own default),
+# stdout is run with --redact, and the un-redacted --details-file stays on the runner -- it is deliberately
+# NEVER uploaded (artifacts of a public repo are public).
+#
+# ALERT-ONLY INVARIANT: this never disables, enables, dispatches or edits any workflow. Auto-disabling
+# everything was the blunt instrument that made this mission necessary.
+#
+# CADENCE: weekly. A run whose usage is 0 minutes (every private workflow is disabled) is NOT recorded as a
+# baseline -- an idle period is not "normal load", and a zero baseline would alert on the first real week.
+# Caps are PROVISIONAL (set against the pre-migration baseline); re-derive them from PHB-08's window.
+#
+# CONTROL / FIRST USE: dispatch with live=false (dry run) and read the log; then live=true. Scheduled runs are
+# dry runs until this file's LIVE default is switched to true after the live path has been proven.
+#
+# Required secret (already used by every migrated workflow here): REPO_TOKEN -- it must be able to read
+# Actions runs of Aspose/aspose.org and, for live alerts, write issues there. If it cannot, the run fails
+# loudly (exit 2) rather than reporting "0 minutes".
+
+name: Workflow Cost Telemetry
+
+on:
+  schedule:
+    - cron: '41 4 * * 1'   # weekly, Monday 04:41 UTC
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'true = record the period and open/update alert issues (in the PRIVATE repo) if a check trips. false (default) = dry run.'
+        required: false
+        default: 'false'
+      period_days:
+        description: 'Collection window in days (the caps are defined for 7 and are scaled for other values)'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+  actions: read     # download the previous run's history artifact
+
+concurrency:
+  group: workflow-cost-telemetry
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_REPO: Aspose/aspose.org
+      LIVE_INPUT: ${{ github.event.inputs.live || 'false' }}
+      PERIOD_INPUT: ${{ github.event.inputs.period_days || '7' }}
+      HIST_DIR: ${{ github.workspace }}/.telemetry-history
+    steps:
+      - name: Validate inputs (they reach a shell, so they are checked, never interpolated)
+        id: cfg
+        run: |
+          case "$LIVE_INPUT" in true|false) ;; *) echo "::error::live must be true or false"; exit 2 ;; esac
+          case "$PERIOD_INPUT" in ''|*[!0-9]*) echo "::error::period_days must be a positive integer"; exit 2 ;; esac
+          [ "$PERIOD_INPUT" -ge 1 ] && [ "$PERIOD_INPUT" -le 90 ] || { echo "::error::period_days must be 1..90"; exit 2; }
+          echo "live=$LIVE_INPUT" >> "$GITHUB_OUTPUT"
+          echo "period=$PERIOD_INPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the rolling history from the previous successful run (may legitimately be absent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$HIST_DIR"
+          PREV=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow workflow-cost-telemetry.yml \
+                   --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -z "$PREV" ]; then
+            echo "No previous successful run: starting an empty history (the breaker's anomaly check stays in warm-up)."
+          elif gh run download "$PREV" --repo "$GITHUB_REPOSITORY" --name cost-budget-history --dir "$HIST_DIR"; then
+            echo "Restored history from run $PREV."
+          else
+            echo "::warning::Run $PREV has no cost-budget-history artifact (a dry run with nothing to carry, or it expired). Starting an empty history."
+          fi
+
+      - name: Check out only what the collector needs (private repo, sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 1
+          path: src
+          sparse-checkout: |
+            scripts/pipeline/__init__.py
+            scripts/pipeline/lib/__init__.py
+            scripts/pipeline/lib/workflow_cost_circuit_breaker.py
+            scripts/pipeline/lib/workflow_usage_collector.py
+            scripts/pipeline/lib/workflow_usage_schema.py
+            scripts/pipeline/commands/ops/workflow_usage_collect_and_check.py
+            scripts/pipeline/commands/ops/workflow_usage_ledger.py
+            scripts/pipeline/config/workflow_cost_budgets.yaml
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install the collector's one dependency
+        run: pip install "pyyaml==6.0.2"
+
+      - name: Collect and check
+        id: collect
+        working-directory: src
+        env:
+          # The token that can read the PRIVATE repo's Actions data (and, live, write its alert issues).
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+          PYTHONPATH: scripts/pipeline
+          LIVE: ${{ steps.cfg.outputs.live }}
+          PERIOD: ${{ steps.cfg.outputs.period }}
+        run: |
+          set +e
+          ARGS=(--repo "$TARGET_REPO" --period-days "$PERIOD"
+                --history-file "$HIST_DIR/cost_budget_history.json"
+                --redact --details-file "$RUNNER_TEMP/details.txt"
+                --ci-health-workflows content-governance-checks.yml skill-governance.yml Aspose/aspose.org-workflows:upstream-monitor.yml)
+          [ "$LIVE" = "true" ] && ARGS+=(--live)
+          python scripts/pipeline/commands/ops/workflow_usage_collect_and_check.py "${ARGS[@]}"
+          RC=$?
+          echo "exit=$RC" >> "$GITHUB_OUTPUT"
+          echo "collector_exit_code=$RC"
+          exit 0
+
+      - name: Carry the history to the next run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-budget-history
+          # ONLY the history (a list of period totals). The un-redacted details file is never uploaded.
+          path: ${{ env.HIST_DIR }}/cost_budget_history.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Fail the run unless the collection was clean (so the history shows trips and blind spots)
+        if: steps.collect.outputs.exit != '0'
+        env:
+          EXIT: ${{ steps.collect.outputs.exit }}
+        run: |
+          case "$EXIT" in
+            1) echo "::error::A cost or CI-health check tripped. Live runs opened/updated an alert issue in the PRIVATE repo; details are not printed here (this repo is public)." ;;
+            2) echo "::error::Collection failed (could not read the private repo's Actions data) -- this is a blind spot, not a clean result." ;;
+            *) echo "::error::collector exited $EXIT" ;;
+          esac
+          exit 1
