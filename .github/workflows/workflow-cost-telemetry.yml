@@ -34,8 +34,9 @@
 # baseline -- an idle period is not "normal load", and a zero baseline would alert on the first real week.
 # Caps are PROVISIONAL (set against the pre-migration baseline); re-derive them from PHB-08's window.
 #
-# CONTROL / FIRST USE: dispatch with live=false (dry run) and read the log; then live=true. Scheduled runs are
-# dry runs until this file's LIVE default is switched to true after the live path has been proven.
+# LIVE vs DRY RUN: a SCHEDULED run is live (it must record history and alert, or the control never operates);
+# a manual dispatch is a dry run unless live=true is passed. The live path was proven on 2026-09-19 (public runs
+# 35431326742 live, 35431835805 restore-from-artifact, both with 0 checks tripped).
 #
 # Required secret (already used by every migrated workflow here): REPO_TOKEN -- it must be able to read
 # Actions runs of Aspose/aspose.org and, for live alerts, write issues there. If it cannot, the run fails
@@ -71,7 +72,7 @@ jobs:
     timeout-minutes: 20
     env:
       TARGET_REPO: Aspose/aspose.org
-      LIVE_INPUT: ${{ github.event.inputs.live || 'false' }}
+      LIVE_INPUT: ${{ github.event.inputs.live || (github.event_name == 'schedule' && 'true') || 'false' }}
       PERIOD_INPUT: ${{ github.event.inputs.period_days || '7' }}
       HIST_DIR: ${{ github.workspace }}/.telemetry-history
     steps:
