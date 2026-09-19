@@ -1,0 +1,162 @@
+# governance-tests-windows.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, card HC-21 (2026-09-19).
+#
+# WHY THIS EXISTS: skill-governance.yml's soft-launched `governance-tests-windows` job was the second
+# most expensive job in the private repo (223 of 1,494 minutes, 14.9%, more than the required Linux job
+# beside it). It cannot be a Linux job: the defect classes it exists to catch are Windows-only in their
+# silent forms (cp1252 reader-thread swallow, the ~32 KB argv ceiling, a WSL bash stub defeating
+# GIT_INDEX_FILE, \r in bash reads of python.exe stdout, core.autocrlf=true worktrees), and nearly all of
+# the same tests already run on Linux in the sibling job. What it adds is the OS. GitHub-hosted Windows
+# runners are free in a PUBLIC repository, so the job now runs here against the private repo's code.
+#
+# WHAT CHANGES vs the private original (the tradeoffs, stated):
+#   * It is scheduled (daily) and dispatchable, not per-push: a public repo cannot be triggered by a
+#     push to the private one. The leg is a soak/regression signal, not a per-commit gate.
+#   * It cannot block anything. A red run opens ONE deduped issue in THIS repo instead. (Direct pushes to
+#     main were never blocked by post-push CI anyway; the local pre-commit hooks are the real gate.)
+#   * This repo is public, so the run log is public. The tests are governance-script tests, but their
+#     failure output can quote lines of the private repo's scripts. The issue text carries only a commit
+#     SHA and the run link.
+#   * Same tests, same list, same Windows locale conditions (PYTHONUTF8 is deliberately NOT set).
+#
+# ALERT-ONLY INVARIANT: this never edits, disables, enables or dispatches anything in either repo.
+#
+# Required secret (already used by every migrated workflow here): REPO_TOKEN (read access to the private
+# repo). The checkout does not persist the token into the workspace.
+#
+# TRY IT: dispatch with the default ref (main), or with any branch/tag/SHA of the private repo.
+
+name: Governance Tests (Windows)
+
+on:
+  schedule:
+    - cron: '37 3 * * *'   # daily, 03:37 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or full SHA of Aspose/aspose.org to test'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: governance-tests-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      REF_INPUT: ${{ github.event.inputs.ref || 'main' }}
+      ALERT_REPO: ${{ github.repository }}
+    steps:
+      - name: Validate the ref input (it reaches a shell, so it is checked, never interpolated)
+        id: cfg
+        run: |
+          case "$REF_INPUT" in ''|*[!A-Za-z0-9._/-]*) echo "::error::ref may only contain letters, digits, . _ / -"; exit 2 ;; esac
+          echo "ref=$REF_INPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the private repo at the requested ref
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          ref: ${{ steps.cfg.outputs.ref }}
+          token: ${{ secrets.REPO_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: scripts/pipeline/requirements-ci.txt
+
+      - name: Set up .venv (Windows layout)
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/Scripts" >> "$GITHUB_PATH"
+          .venv/Scripts/python -m pip install -r scripts/pipeline/requirements-ci.txt --quiet
+
+      - name: Show toolchain reality (autocrlf, locale, bash, tested commit)
+        id: tc
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD
+          git config core.autocrlf || echo "core.autocrlf unset"
+          .venv/Scripts/python -c "import locale,sys; print('preferred', locale.getpreferredencoding(False), 'utf8_mode', sys.flags.utf8_mode)"
+          bash --version | head -1
+
+      - name: Run governance subset on Windows
+        id: tests
+        continue-on-error: true
+        env:
+          PYTHONPATH: scripts/pipeline
+        run: |
+          .venv/Scripts/python -m pytest \
+            scripts/ci/tests/test_check_stale_file_regression.py \
+            scripts/ci/tests/test_check_stale_file_regression_encoding.py \
+            scripts/pipeline/tests/test_git_plumb_commit.py \
+            scripts/pipeline/tests/test_git_plumb_commit_reconcile.py \
+            scripts/pipeline/tests/test_git_plumb_commit_encoding.py \
+            scripts/pipeline/tests/test_precommit_audit_step5_step10.py \
+            scripts/pipeline/tests/test_precommit_audit_mutation_safety.py \
+            scripts/pipeline/tests/test_precommit_audit_step_numbering.py \
+            scripts/pipeline/tests/test_session_ledger.py \
+            scripts/pipeline/tests/test_session_identity.py \
+            scripts/pipeline/tests/test_override_manager.py \
+            scripts/pipeline/tests/test_checkout_sync.py \
+            scripts/pipeline/tests/test_stale_file_regression_lib.py \
+            scripts/pipeline/tests/test_precommit_audit_step34.py \
+            scripts/pipeline/tests/test_precommit_full_run.py \
+            -v --tb=short
+
+      - name: Open or update the alert issue (tests failed)
+        if: steps.tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ steps.tc.outputs.sha }}
+        run: |
+          gh label create windows-governance-red --repo "$ALERT_REPO" --color d73a4a \
+            --description "governance-tests-windows.yml: the Windows governance test subset failed" 2>/dev/null || true
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The Windows governance test subset failed against Aspose/aspose.org at \`${TESTED_SHA}\`."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "Triage from the run log: a genuine Windows-only defect, a test that assumes POSIX, or a runner-environment change. Nothing has been changed automatically."
+          } > "$RUNNER_TEMP/body.md"
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label windows-governance-red --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$ALERT_REPO" --label windows-governance-red \
+              --title "Windows governance tests are failing" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+      - name: Close the alert issue once the tests pass
+        if: steps.tests.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --repo "$ALERT_REPO" --label windows-governance-red --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$ALERT_REPO" \
+              --body "Resolved: the Windows governance subset passes. (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            gh issue close "$EXISTING" --repo "$ALERT_REPO"
+          fi
+
+      - name: Fail the run if the tests failed (so the run history shows it)
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error::The Windows governance test subset failed -- see the pytest step and the alert issue."
+          exit 1
