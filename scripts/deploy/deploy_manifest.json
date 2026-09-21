@@ -1,50 +1,32 @@
 {
-  "scan_id": "20260920-090638",
-  "content_sha": "ed08a1fe6497fa1b8af0e986345938f1c4d5fb43",
-  "previous_sha": "71da449f54e923c602157d014f56578b9f6a6c58",
-  "detected_at": "2026-09-20T09:06:38.032568+00:00",
+  "scan_id": "20260921-093945",
+  "content_sha": "543a36a2fd091dd3f488cd1cbf9eb73bd70bd73d",
+  "previous_sha": "ed08a1fe6497fa1b8af0e986345938f1c4d5fb43",
+  "detected_at": "2026-09-21T09:39:45.448229+00:00",
   "global_change": false,
-  "state": "completed",
+  "state": "pending",
   "staged_workflows": [
     {
-      "workflow": "blog.aspose.org.yml",
-      "staging_trigger_time": "2026-09-20T09:06:49Z",
-      "staging_run_id": 35501410370,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-20T10:29:40Z",
-      "production_run_id": 35505222519,
-      "production_status": "success"
-    },
-    {
       "workflow": "docs.aspose.org.yml",
-      "staging_trigger_time": "2026-09-20T09:06:56Z",
-      "staging_run_id": 35501414756,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-20T10:29:47Z",
-      "production_run_id": 35505227606,
-      "production_status": "success"
-    },
-    {
-      "workflow": "kb.aspose.org.yml",
-      "staging_trigger_time": "2026-09-20T09:07:03Z",
-      "staging_run_id": 35501418938,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-20T10:29:54Z",
-      "production_run_id": 35505232504,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "products.aspose.org.yml",
-      "staging_trigger_time": "2026-09-20T09:07:09Z",
-      "staging_run_id": 35501423821,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-20T10:30:00Z",
-      "production_run_id": 35505238032,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     }
   ],
   "production_only_workflows": [],
-  "completed_at": "2026-09-20T14:26:32.638480+00:00",
+  "completed_at": null,
   "failed_at": null,
   "error": null
 }
