@@ -116,6 +116,8 @@ jobs:
             scripts/pipeline/commands/ops/workflow_usage_collect_and_check.py
             scripts/pipeline/commands/ops/workflow_usage_ledger.py
             scripts/pipeline/config/workflow_cost_budgets.yaml
+            scripts/ci/checks/check_soft_launch_deadlines.py
+            data/soft_launch_deadlines.json
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-python@v5
@@ -157,6 +159,61 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
+      # MT069 HC-15 (2026-09-23): the "soft-launch deadline watch" proposal. A soak-gated surface
+      # (a continue-on-error step, a --wide-findings=warn default, ...) that nobody re-checks by its
+      # own stated deadline is exactly the shape of a real incident this mission found live
+      # (TC-SG-07/R-04 went 12 days overdue unnoticed). Piggybacks on this already-scheduled,
+      # already-checked-out-private-repo run rather than being a separate workflow.
+      - name: Check soft-launch deadlines (MT069 HC-15)
+        id: deadlines
+        working-directory: src
+        run: |
+          set +e
+          python scripts/ci/checks/check_soft_launch_deadlines.py --json > "$RUNNER_TEMP/deadlines.json"
+          RC=$?
+          echo "exit=$RC" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/deadlines.json"
+          exit 0
+
+      - name: Open or update the soft-launch-overdue alert issue
+        if: steps.deadlines.outputs.exit == '1'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          gh label create soft-launch-overdue --repo "$TARGET_REPO" --color d73a4a \
+            --description "check_soft_launch_deadlines.py: a soaking surface passed its stated graduation date unreviewed" 2>/dev/null || true
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "One or more soft-launched surfaces are past their stated graduation date without being re-reviewed."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo '```'
+            python -c "import json;d=json.load(open('$RUNNER_TEMP/deadlines.json'));[print(f\"[{e['id']}] soak_end {e['soak_end']} -- owner {e['owning_card']}: {e['description']}\") for e in d['overdue']]"
+            echo '```'
+            echo
+            echo "Fix: docs/operations/stale-guard-graduation-criteria.md (if this is that entry) or the owning card, then update data/soft_launch_deadlines.json's status to graduated/reverted."
+          } > "$RUNNER_TEMP/deadline_body.md"
+          EXISTING=$(gh issue list --repo "$TARGET_REPO" --label soft-launch-overdue --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$TARGET_REPO" --body-file "$RUNNER_TEMP/deadline_body.md"
+          else
+            gh issue create --repo "$TARGET_REPO" --label soft-launch-overdue \
+              --title "Soft-launched surface(s) overdue for graduation review" --body-file "$RUNNER_TEMP/deadline_body.md"
+          fi
+
+      - name: Close the soft-launch-overdue alert issue once nothing is overdue
+        if: steps.deadlines.outputs.exit == '0'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo "$TARGET_REPO" --label soft-launch-overdue --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$TARGET_REPO" \
+              --body "Resolved: no soft-launched surface is overdue. (${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            gh issue close "$EXISTING" --repo "$TARGET_REPO"
+          fi
+
       - name: Fail the run unless the collection was clean (so the history shows trips and blind spots)
         if: steps.collect.outputs.exit != '0'
         env:
@@ -166,5 +223,16 @@ jobs:
             1) echo "::error::A cost or CI-health check tripped. Live runs opened/updated an alert issue in the PRIVATE repo; details are not printed here (this repo is public)." ;;
             2) echo "::error::Collection failed (could not read the private repo's Actions data) -- this is a blind spot, not a clean result." ;;
             *) echo "::error::collector exited $EXIT" ;;
+          esac
+          exit 1
+
+      - name: Fail the run if a soft-launch deadline is overdue (MT069 HC-15)
+        if: steps.deadlines.outputs.exit != '0'
+        env:
+          EXIT: ${{ steps.deadlines.outputs.exit }}
+        run: |
+          case "$EXIT" in
+            1) echo "::error::A soaking surface is overdue for graduation review. See the soft-launch-overdue alert issue in the PRIVATE repo." ;;
+            *) echo "::error::check_soft_launch_deadlines.py exited $EXIT (a configuration problem, not a finding)." ;;
           esac
           exit 1
