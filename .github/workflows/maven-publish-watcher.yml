@@ -71,7 +71,7 @@ jobs:
           PYTHONPATH=scripts/pipeline python -m commands.ops.publish_watcher \
             --auto-apply \
             --issue-body-out /tmp/issue-body.md \
-            --version-issue-body-out /tmp/version-issue-body.md
+            --version-issue-body-out /tmp/version-issue-body.md \n            --stuck-release-issue-body-out /tmp/stuck-release-issue-body.md
         continue-on-error: true
 
       - name: Open a PR with the auto-applied registry changes (instead of committing directly)
@@ -126,6 +126,23 @@ jobs:
               title: `Java-FOSS package(s) have a newer version on Maven Central — ${today}`,
               body: body + `\n\nTriggered by: [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) (Aspose/aspose.org-workflows, migrated public execution -- MT069 PHB-06).`,
               labels: ['maven-publish-watcher'],
+            });
+
+      - name: Create issue on a stuck release detected (on the private Aspose/aspose.org repo)
+        if: steps.watch.outcome == 'failure' && hashFiles('/tmp/stuck-release-issue-body.md') != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const today = new Date().toISOString().slice(0, 10);
+            const body = fs.readFileSync('/tmp/stuck-release-issue-body.md', 'utf8');
+            await github.rest.issues.create({
+              owner: 'Aspose',
+              repo: 'aspose.org',
+              title: `Java-FOSS package(s) have a release stuck unpublished on Maven Central — ${today}`,
+              body: body + `\n\nTriggered by: [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) (Aspose/aspose.org-workflows, migrated public execution -- MT069 PHB-06).`,
+              labels: ['maven-publish-watcher', 'stuck-publish'],
             });
 
       - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
