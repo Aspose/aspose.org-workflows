@@ -17,9 +17,15 @@
 #     workflows would fail on the same crash anyway.
 #   * It always does a FULL regeneration. The private version scoped regeneration to the changed subdomain to
 #     save minutes; minutes are free here, and a full run is the same work the deploy workflows do.
-#   * The "Stale check gate" is carried over UNCHANGED and is still structurally vacuous (its manifest is
-#     rebuilt immediately before it is checked -- card HC-12). It proves the generator ran to completion; it
-#     does not detect drift. Do not read a green run as drift detection.
+#   * The "Stale check gate" (the step AFTER regeneration) is carried over UNCHANGED and stays structurally
+#     vacuous by itself (its manifest is rebuilt immediately before it is checked). It proves the generator
+#     ran to completion; it does not detect drift on its own.
+#   * MT069 HC-12 (2026-09-23) adds a SEPARATE, genuine cross-run check: the manifest from the PREVIOUS
+#     successful run is restored via a CI artifact and checked BEFORE regeneration touches anything. That
+#     comparison (this run's current content vs. the manifest a prior run persisted) can actually disagree,
+#     unlike same-run rebuild-then-check. Soft-launched (`continue-on-error: true`) since it is new,
+#     never-yet-observed-live machinery -- see scripts/generator/tests/test_stale_detection_cli.py for the
+#     negative control proving the OLD same-run pattern was vacuous by construction and the NEW one is not.
 #   * This repo is public, so the run log is public. Site content is already public; the issue text carries
 #     only a commit SHA and the run link.
 #
@@ -43,6 +49,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: read     # download the previous run's manifest artifact
 
 concurrency:
   group: llms-generation
@@ -55,6 +62,7 @@ jobs:
     env:
       REF_INPUT: ${{ github.event.inputs.ref || 'main' }}
       ALERT_REPO: ${{ github.repository }}
+      PRIOR_MANIFEST: ${{ github.workspace }}/.prior-manifest/provenance-manifest.json
     steps:
       - name: Validate the ref input (it reaches a shell, so it is checked, never interpolated)
         id: cfg
@@ -82,6 +90,37 @@ jobs:
           echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
           .venv/bin/pip install pyyaml --quiet
 
+      - name: Restore the previous run's manifest (may legitimately be absent on the first run)
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$(dirname "$PRIOR_MANIFEST")"
+          PREV=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow llms-generation.yml \
+                   --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -z "$PREV" ]; then
+            echo "No previous successful run: skipping the pre-regeneration drift check this time."
+            echo "has_prior=false" >> "$GITHUB_OUTPUT"
+          elif gh run download "$PREV" --repo "$GITHUB_REPOSITORY" --name llms-manifest --dir "$(dirname "$PRIOR_MANIFEST")"; then
+            echo "Restored the manifest from run $PREV."
+            echo "has_prior=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Run $PREV has no llms-manifest artifact (expired, or its own restore failed). Skipping the pre-regeneration check this time."
+            echo "has_prior=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pre-regeneration drift check (MT069 HC-12 -- genuine cross-run check, soft-launched)
+        if: steps.restore.outputs.has_prior == 'true'
+        continue-on-error: true
+        run: |
+          echo "tested commit: $(git rev-parse HEAD)"
+          .venv/bin/python scripts/generator/detect_stale_llms.py \
+            --llms-output llms-output \
+            --content content \
+            --check-only \
+            --manifest-path "$PRIOR_MANIFEST" \
+            --stale-report-path "$RUNNER_TEMP/pre-regen-stale-report.json"
+
       - name: Regenerate all subdomains (hierarchical mode)
         run: |
           echo "tested commit: $(git rev-parse HEAD)"
@@ -98,12 +137,25 @@ jobs:
           .venv/bin/python scripts/generator/detect_stale_llms.py \
             --llms-output llms-output \
             --content content \
-            --update-manifest
+            --update-manifest \
+            --manifest-path "$PRIOR_MANIFEST"
 
-      - name: Stale check gate (fail if any stale or missing) -- proves the generator completed, NOT drift (HC-12)
+      - name: Stale check gate (fail if any stale or missing) -- proves the generator completed, NOT drift
         run: |
           .venv/bin/python scripts/generator/detect_stale_llms.py \
-            --check-only
+            --llms-output llms-output \
+            --content content \
+            --check-only \
+            --manifest-path "$PRIOR_MANIFEST"
+
+      - name: Carry the manifest to the next run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llms-manifest
+          path: ${{ env.PRIOR_MANIFEST }}
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Update txt inventory
         run: |
@@ -113,7 +165,8 @@ jobs:
         run: |
           echo "=== LLMs Regeneration Summary (smoke test) ==="
           echo "Mode: all subdomains, hierarchical; tested commit $(git rev-parse HEAD)"
-          echo "Stale check: PASS (generator completed; this is not drift detection)"
+          echo "Pre-regeneration drift check (cross-run, soft-launched): see its own step's outcome above"
+          echo "Post-regeneration stale check: PASS (generator completed; same-run, not drift detection by itself)"
           echo "Inventory: updated"
 
       - name: Open or update the alert issue (a step failed)
