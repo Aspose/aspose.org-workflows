@@ -1,32 +1,41 @@
 {
-  "scan_id": "20260923-090721",
-  "content_sha": "ac3672f7b8a94c10f727b71e68ca195783a7717c",
-  "previous_sha": "543a36a2fd091dd3f488cd1cbf9eb73bd70bd73d",
-  "detected_at": "2026-09-23T09:07:21.215869+00:00",
+  "scan_id": "20260924-090214",
+  "content_sha": "7497d64ba4f0bcededb9ab92dec9ba58bd56fc47",
+  "previous_sha": "ac3672f7b8a94c10f727b71e68ca195783a7717c",
+  "detected_at": "2026-09-24T09:02:14.892163+00:00",
   "global_change": false,
-  "state": "completed",
+  "state": "pending",
   "staged_workflows": [
     {
       "workflow": "blog.aspose.org.yml",
-      "staging_trigger_time": "2026-09-23T09:07:33Z",
-      "staging_run_id": 35841089305,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-23T13:16:18Z",
-      "production_run_id": 35865917496,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     },
     {
       "workflow": "docs.aspose.org.yml",
-      "staging_trigger_time": "2026-09-23T09:07:40Z",
-      "staging_run_id": 35841099732,
-      "staging_status": "success",
-      "production_trigger_time": "2026-09-23T13:16:25Z",
-      "production_run_id": 35865930782,
-      "production_status": "success"
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
+    },
+    {
+      "workflow": "kb.aspose.org.yml",
+      "staging_trigger_time": null,
+      "staging_run_id": null,
+      "staging_status": "pending",
+      "production_trigger_time": null,
+      "production_run_id": null,
+      "production_status": "pending"
     }
   ],
   "production_only_workflows": [],
-  "completed_at": "2026-09-23T18:10:46.410462+00:00",
+  "completed_at": null,
   "failed_at": null,
   "error": null
 }
