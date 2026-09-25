@@ -28,8 +28,33 @@ from config import DOMAIN, SUBDOMAINS
 
 # --- Mapping Configuration ---
 
+# releases.aspose.org is deliberately NOT added to config.SUBDOMAINS: that list
+# is also read by scripts/google/sitemaps.py and scripts/yandex/sitemaps.py to
+# decide which domains get a weekly sitemap submitted to Search Console --
+# releases.aspose.org is a single data-driven homepage with no content/ tree of
+# its own, and folding it into SUBDOMAINS would silently start submitting its
+# sitemap too, a scope this deploy-mapping fix was never asked to touch. It is
+# deploy-only, so it is added here instead, next to SITES itself.
+RELEASES_SITE = "releases.aspose.org"
+
 # All aspose.org sites use whole-site workflows (no per-family workflows).
-SITES = [f"{sub}" for sub in SUBDOMAINS]
+SITES = [f"{sub}" for sub in SUBDOMAINS] + [RELEASES_SITE]
+
+# releases.aspose.org has no content/<site>/ directory to key off of -- its
+# homepage (themes/releases/layouts/_default/homepage.html) is rendered
+# entirely from these data files (package identity/version, product roster,
+# family/platform display names and ordering). A change to any of them is the
+# only non-global signal that should redeploy it. Confirmed live 2026-09-25:
+# with no rule at all, the site went 15 days without a rebuild despite
+# data/package_registry.json changing repeatedly in that window.
+RELEASES_DATA_FILES = {
+    "data/package_registry.json",
+    "data/products.json",
+    "data/families.json",
+    "data/families_order.json",
+    "data/platforms.json",
+    "data/platforms_order.json",
+}
 
 # Paths outside content/ that affect all sites (theme, layout, static assets)
 GLOBAL_PATHS = ["themes/", "layouts/", "archetypes/", "static/", "i18n/"]
@@ -65,6 +90,10 @@ def map_path_to_workflow(path):
         site = config_file.rsplit(".", 1)[0]  # strip extension
         if site in SITES:
             workflows.add(f"{site}.yml")
+
+    # data/*.json files that feed releases.aspose.org's data-driven homepage
+    if path in RELEASES_DATA_FILES:
+        workflows.add(f"{RELEASES_SITE}.yml")
 
     return workflows, False
 
