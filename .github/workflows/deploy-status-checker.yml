@@ -9,6 +9,7 @@ on:
       - "reference.aspose.org"
       - "websites.aspose.org"
       - "blog.aspose.org"
+      - "releases.aspose.org"
     types:
       - completed
   schedule:
