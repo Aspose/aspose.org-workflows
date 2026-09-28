@@ -17,6 +17,16 @@
 # IMPORTANT (human-authority boundary, inherited repo-wide norm, MT062/MT066):
 # this workflow (and no automated process) may ever merge the PR it opens.
 #
+# RETIRED FROM SCHEDULE (MT075-T7, 2026-09-28): superseded by registry-watch.yml,
+# which covers Maven plus the other 5 registries in one unified, uniformly-gated
+# loop (check_registry_merge_safety.py) including this watcher's own
+# check_stuck_releases() detection. The scheduled trigger below is removed so
+# the two watchers never run against data/package_registry.json in the same
+# window; workflow_dispatch is kept as a manual fallback only. Actual deletion
+# of this file is a separate, DGR-gated step once the new watcher has run
+# clean in production for a while -- not done in the same step as retiring
+# the schedule.
+#
 # Required secrets (set in Aspose/aspose.org-workflows, same ones the SEO
 # templates and the other migrated bots already use -- not new exposure):
 #   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
@@ -25,8 +35,6 @@
 name: Maven Publish Watcher
 
 on:
-  schedule:
-    - cron: '0 9 * * *'  # daily 09:00 UTC -- matches the private original's cadence
   workflow_dispatch: {}
 
 jobs:
