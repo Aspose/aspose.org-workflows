@@ -1,0 +1,227 @@
+# registry-watch.yml
+#
+# LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
+#
+# MT075-2026-09-28-REGISTRY-WATCH-CONSOLIDATION-AND-SCANNER-HARDENING, T7:
+# replaces package-publish-watch.yml + maven-publish-watcher.yml with one
+# unified watcher covering all 6 registries (pypi, nuget, npm, go_modules,
+# cargo, maven) through registry_watch.py's uniform CheckResult adapter
+# contract and check_registry_merge_safety.py's two-tier gate (Tier 1:
+# version bump of an already-published, same-identity entry -- auto-applies
+# on deterministic checks alone; Tier 2: first publish or identity change --
+# auto-applies only when corroborated against the product's own GitHub
+# repo tags/releases, else held for a later cycle, never touching the live
+# registry and never blocking on a person). See the governing plan, section
+# R2.12, for the full design.
+#
+# BOOTSTRAP-THEN-AUTONOMOUS (explicit operator decision, 2026-09-28):
+# unlike its two predecessors, this workflow does NOT always open a PR.
+# While fewer than BOOTSTRAP_THRESHOLD PRs labeled `registry-watch-bootstrap`
+# have been MERGED on Aspose/aspose.org, it opens a PR exactly like its
+# predecessors did (a human merges the first few, validating the gate
+# against real events before anything runs unsupervised). Once that many
+# have been merged, it commits and pushes directly -- no PR, no human step,
+# for BOTH tiers. This deliberately supersedes, ONLY for this one watcher,
+# the "this workflow may never merge its own PR" norm documented in
+# package-publish-watch.yml and maven-publish-watcher.yml (human-authority
+# boundary, MT062/MT066, 2026-09-17) -- by an explicit, informed operator
+# decision made after that norm was surfaced (2026-09-28). The norm is
+# otherwise unchanged and still governs install-literal-sweep.yml and
+# upstream-monitor.yml; this is not a repo-wide policy change.
+#
+# Required secrets (set in Aspose/aspose.org-workflows, same ones every
+# other migrated watcher already uses -- not new exposure, and this
+# workflow's own script never touches anything but data/package_registry.json):
+#   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
+#   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+
+name: Registry Watch (pypi/nuget/npm/go/cargo/maven, unified)
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'  # every 6 hours
+  workflow_dispatch: {}
+
+env:
+  BOOTSTRAP_THRESHOLD: 5
+
+jobs:
+  check-publish-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify GitHub token is valid
+        id: token_check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Neither REPO_TOKEN nor GH_TOKEN secret is set in Aspose/aspose.org-workflows. Add one under Settings -> Secrets -> Actions."
+            echo "reason=missing" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! WHOAMI=$(gh api user --jq .login 2>&1); then
+            echo "::error::GitHub token (REPO_TOKEN/GH_TOKEN) is set but rejected by the GitHub API -- almost certainly expired or revoked. Real error: $WHOAMI"
+            echo "reason=invalid" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Token OK -- authenticated as $WHOAMI"
+
+      - name: Determine bootstrap status
+        id: bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          MERGED_COUNT=$(gh pr list --repo Aspose/aspose.org --state merged \
+            --search "label:registry-watch-bootstrap" --json number --jq 'length')
+          FIRST_DEPLOYED_DAYS_AGO=$(( ( $(date -u +%s) - $(date -u -d '2026-09-28' +%s) ) / 86400 ))
+          echo "merged_bootstrap_prs=$MERGED_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$MERGED_COUNT" -ge "$BOOTSTRAP_THRESHOLD" ] || [ "$FIRST_DEPLOYED_DAYS_AGO" -ge 30 ]; then
+            echo "autonomous=true" >> "$GITHUB_OUTPUT"
+            echo "Bootstrap complete ($MERGED_COUNT/$BOOTSTRAP_THRESHOLD merged, ${FIRST_DEPLOYED_DAYS_AGO}d since deploy) -- running autonomous (no PR)."
+          else
+            echo "autonomous=false" >> "$GITHUB_OUTPUT"
+            echo "Bootstrap in progress ($MERGED_COUNT/$BOOTSTRAP_THRESHOLD merged, ${FIRST_DEPLOYED_DAYS_AGO}d since deploy) -- opening a PR, same as today."
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: scripts/pipeline/requirements-ci.txt
+
+      - name: Set up venv
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+          .venv/bin/pip install -r scripts/pipeline/requirements-ci.txt --quiet
+
+      - name: Observe all 6 registries and stage eligible changes
+        id: watch
+        run: |
+          PYTHONPATH=scripts/pipeline python -m commands.ops.registry_watch \
+            --auto-apply --held-report-out /tmp/held-report.json \
+            | tee /tmp/watch-stdout.txt
+        continue-on-error: true
+
+      - name: Commit and push directly (autonomous phase, no PR)
+        if: steps.bootstrap.outputs.autonomous == 'true' && steps.watch.outcome == 'success'
+        run: |
+          if git diff --quiet -- data/package_registry.json; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "registry-watch-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/package_registry.json
+          git commit -m "chore(package-registry): automated registry-watch update (autonomous, MT075-T7)"
+          git push origin HEAD:main
+
+      - name: Open a PR (bootstrap phase -- a human merges this one)
+        if: steps.bootstrap.outputs.autonomous == 'false' && steps.watch.outcome == 'success'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          title: 'chore(package-registry): automated registry-watch update [bootstrap]'
+          body: |
+            ## Automated Registry Watch Update (bootstrap phase)
+
+            Detected and applied by `registry_watch.py --auto-apply`, gated by
+            `check_registry_merge_safety.py`'s two-tier decision: a version bump of
+            an already-published entry passes on deterministic checks alone (version
+            monotonic, non-prerelease, only version/verification fields changed); a
+            first publish or identity change is only ever included here because it
+            was corroborated against the product's own GitHub repo tags/releases,
+            never on the registry's self-reported evidence alone.
+
+            This repo is still in the bootstrap phase
+            (`${{ steps.bootstrap.outputs.merged_bootstrap_prs }}`/`${{ env.BOOTSTRAP_THRESHOLD }}`
+            prior bootstrap PRs merged) -- **please review and merge this PR**. Once
+            `${{ env.BOOTSTRAP_THRESHOLD }}` of these have been merged (or 30 days
+            have passed since this workflow was first deployed), it switches to
+            committing directly with no further PR step for either tier (MT075-T7,
+            explicit operator decision 2026-09-28 -- see the governing plan's R2.12
+            for the full design and the human-authority-boundary note it supersedes).
+
+            Generated by `registry-watch.yml` running in `Aspose/aspose.org-workflows`.
+          branch: automated/registry-watch-update
+          commit-message: 'chore(package-registry): automated registry-watch update'
+          add-paths: data/package_registry.json
+          labels: registry-watch-bootstrap
+
+      - name: Report held/rejected candidates (visibility only, never blocks)
+        if: always() && hashFiles('/tmp/held-report.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          HELD_COUNT=$(.venv/bin/python -c "import json; d=json.load(open('/tmp/held-report.json')); print(len(d.get('held', [])))")
+          if [ "$HELD_COUNT" = "0" ]; then
+            echo "Nothing held this run."
+            exit 0
+          fi
+          today=$(date -u +%Y-%m-%d)
+          BODY=$(cat <<EOF
+          ## Registry Watch -- $HELD_COUNT candidate(s) held this run
+
+          These did not clear \`check_registry_merge_safety.py\`'s gate (uncorroborated
+          first publish/identity change, or a batch cap) and were NOT applied. They
+          are automatically re-evaluated every run -- no action required unless one
+          has been held for an unexpectedly long time.
+
+          \`\`\`json
+          $(cat /tmp/held-report.json)
+          \`\`\`
+
+          Triggered by: [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) (Aspose/aspose.org-workflows).
+          EOF
+          )
+          EXISTING=$(gh issue list --repo Aspose/aspose.org --label registry-watch-held --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org \
+              --title "Registry Watch: candidates held pending stronger evidence" \
+              --label registry-watch-held --body "$BODY"
+          fi
+
+      - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          gh label create registry-watch-failure --repo Aspose/aspose.org-workflows \
+            --color d73a4a --description "registry-watch.yml run failed" 2>/dev/null || true
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
+          BODY=$(cat <<EOF
+          Run failed: $RUN_URL
+          Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Likely cause: $REASON
+          EOF
+          )
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label registry-watch-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows --body "$BODY"
+          else
+            gh issue create --repo Aspose/aspose.org-workflows \
+              --title "registry-watch.yml is failing" \
+              --label registry-watch-failure \
+              --body "$BODY"
+          fi
+
+      - name: Close the failure-tracking issue if this run succeeded
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label registry-watch-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo Aspose/aspose.org-workflows \
+              --body "Resolved -- this run (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) completed successfully."
+            gh issue close "$EXISTING" --repo Aspose/aspose.org-workflows
+          fi
