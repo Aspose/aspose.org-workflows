@@ -14,20 +14,34 @@
 # registry and never blocking on a person). See the governing plan, section
 # R2.12, for the full design.
 #
-# BOOTSTRAP-THEN-AUTONOMOUS (explicit operator decision, 2026-09-28):
-# unlike its two predecessors, this workflow does NOT always open a PR.
-# While fewer than BOOTSTRAP_THRESHOLD PRs labeled `registry-watch-bootstrap`
-# have been MERGED on Aspose/aspose.org, it opens a PR exactly like its
-# predecessors did (a human merges the first few, validating the gate
-# against real events before anything runs unsupervised). Once that many
-# have been merged, it commits and pushes directly -- no PR, no human step,
-# for BOTH tiers. This deliberately supersedes, ONLY for this one watcher,
-# the "this workflow may never merge its own PR" norm documented in
-# package-publish-watch.yml and maven-publish-watcher.yml (human-authority
-# boundary, MT062/MT066, 2026-09-17) -- by an explicit, informed operator
-# decision made after that norm was surfaced (2026-09-28). The norm is
-# otherwise unchanged and still governs install-literal-sweep.yml and
-# upstream-monitor.yml; this is not a repo-wide policy change.
+# FULLY AUTONOMOUS FROM THE FIRST RUN (explicit operator decision, 2026-09-28,
+# plan Revision 2 R2.13 -- supersedes this workflow's own original R2.12
+# bootstrap design within 24h of first deploy). No PR, no human step, for
+# EITHER tier, from the start. This deliberately supersedes, ONLY for this
+# one watcher, the "this workflow may never merge its own PR" norm documented
+# in package-publish-watch.yml and maven-publish-watcher.yml (human-authority
+# boundary, MT062/MT066, 2026-09-17); that norm is otherwise unchanged and
+# still governs install-literal-sweep.yml and upstream-monitor.yml -- this is
+# not a repo-wide policy change.
+#
+# Why the bootstrap-PR design (a human merges the first 5) was removed rather
+# than kept: real evidence gathered the same day it was deployed showed the
+# "human reviews the PR" step this repo's OTHER bot workflows already used
+# doesn't function as designed here -- PR #105 (predecessor workflow) sat
+# open and untouched for 9 days; PR #113 sat open despite being fully
+# superseded; no PR-attention/triage mechanism exists anywhere in either repo
+# for non-SEO-prefixed automated PRs (the one that does exist, the SEO
+# arbiter+dashboard, is scoped to `seo/`-prefixed branches only). Worse: the
+# SEO precedent this design partly modeled itself on turned out, on
+# inspection, to not be a real human-review step either -- 7 of 8 recent SEO
+# PRs merged in 3-10 seconds with zero recorded reviews, a scripted merge
+# riding a human's PAT identity, not a person reading a diff. Removing the
+# bootstrap gate replaces a safety step that wasn't actually functioning with
+# the one net-new control that actually matters once nothing is in the loop
+# at all: check_registry_merge_safety.py's velocity/anomaly check (MT075-T9),
+# reusing scripts/seo/pipeline/change_budget.py's proven rolling-baseline
+# design (mechanism="registry_watch") -- a cross-run check that catches a
+# sustained abnormal pattern the old single-run 5-entry cap alone could not.
 #
 # Required secrets (set in Aspose/aspose.org-workflows, same ones every
 # other migrated watcher already uses -- not new exposure, and this
@@ -41,9 +55,6 @@ on:
   schedule:
     - cron: '17 */6 * * *'  # every 6 hours
   workflow_dispatch: {}
-
-env:
-  BOOTSTRAP_THRESHOLD: 5
 
 jobs:
   check-publish-status:
@@ -66,23 +77,6 @@ jobs:
             exit 1
           fi
           echo "Token OK -- authenticated as $WHOAMI"
-
-      - name: Determine bootstrap status
-        id: bootstrap
-        env:
-          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
-        run: |
-          MERGED_COUNT=$(gh pr list --repo Aspose/aspose.org --state merged \
-            --search "label:registry-watch-bootstrap" --json number --jq 'length')
-          FIRST_DEPLOYED_DAYS_AGO=$(( ( $(date -u +%s) - $(date -u -d '2026-09-28' +%s) ) / 86400 ))
-          echo "merged_bootstrap_prs=$MERGED_COUNT" >> "$GITHUB_OUTPUT"
-          if [ "$MERGED_COUNT" -ge "$BOOTSTRAP_THRESHOLD" ] || [ "$FIRST_DEPLOYED_DAYS_AGO" -ge 30 ]; then
-            echo "autonomous=true" >> "$GITHUB_OUTPUT"
-            echo "Bootstrap complete ($MERGED_COUNT/$BOOTSTRAP_THRESHOLD merged, ${FIRST_DEPLOYED_DAYS_AGO}d since deploy) -- running autonomous (no PR)."
-          else
-            echo "autonomous=false" >> "$GITHUB_OUTPUT"
-            echo "Bootstrap in progress ($MERGED_COUNT/$BOOTSTRAP_THRESHOLD merged, ${FIRST_DEPLOYED_DAYS_AGO}d since deploy) -- opening a PR, same as today."
-          fi
 
       - uses: actions/checkout@v4
         with:
@@ -109,8 +103,8 @@ jobs:
             | tee /tmp/watch-stdout.txt
         continue-on-error: true
 
-      - name: Commit and push directly (autonomous phase, no PR)
-        if: steps.bootstrap.outputs.autonomous == 'true' && steps.watch.outcome == 'success'
+      - name: Commit and push directly (no PR, no human step, either tier)
+        if: steps.watch.outcome == 'success'
         run: |
           if git diff --quiet -- data/package_registry.json; then
             echo "No changes to commit."
@@ -119,40 +113,8 @@ jobs:
           git config user.name "registry-watch-bot"
           git config user.email "noreply@anthropic.com"
           git add data/package_registry.json
-          git commit -m "chore(package-registry): automated registry-watch update (autonomous, MT075-T7)"
+          git commit -m "chore(package-registry): automated registry-watch update (MT075-T7/T9/T10)"
           git push origin HEAD:main
-
-      - name: Open a PR (bootstrap phase -- a human merges this one)
-        if: steps.bootstrap.outputs.autonomous == 'false' && steps.watch.outcome == 'success'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
-          title: 'chore(package-registry): automated registry-watch update [bootstrap]'
-          body: |
-            ## Automated Registry Watch Update (bootstrap phase)
-
-            Detected and applied by `registry_watch.py --auto-apply`, gated by
-            `check_registry_merge_safety.py`'s two-tier decision: a version bump of
-            an already-published entry passes on deterministic checks alone (version
-            monotonic, non-prerelease, only version/verification fields changed); a
-            first publish or identity change is only ever included here because it
-            was corroborated against the product's own GitHub repo tags/releases,
-            never on the registry's self-reported evidence alone.
-
-            This repo is still in the bootstrap phase
-            (`${{ steps.bootstrap.outputs.merged_bootstrap_prs }}`/`${{ env.BOOTSTRAP_THRESHOLD }}`
-            prior bootstrap PRs merged) -- **please review and merge this PR**. Once
-            `${{ env.BOOTSTRAP_THRESHOLD }}` of these have been merged (or 30 days
-            have passed since this workflow was first deployed), it switches to
-            committing directly with no further PR step for either tier (MT075-T7,
-            explicit operator decision 2026-09-28 -- see the governing plan's R2.12
-            for the full design and the human-authority-boundary note it supersedes).
-
-            Generated by `registry-watch.yml` running in `Aspose/aspose.org-workflows`.
-          branch: automated/registry-watch-update
-          commit-message: 'chore(package-registry): automated registry-watch update'
-          add-paths: data/package_registry.json
-          labels: registry-watch-bootstrap
 
       - name: Report held/rejected candidates (visibility only, never blocks)
         if: always() && hashFiles('/tmp/held-report.json') != ''
