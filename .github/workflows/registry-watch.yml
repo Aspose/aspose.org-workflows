@@ -98,6 +98,16 @@ jobs:
       - name: Observe all 6 registries and stage eligible changes
         id: watch
         run: |
+          # set -o pipefail is load-bearing, not defensive boilerplate: the
+          # first real pilot run of this workflow (2026-09-29) found that
+          # `python ... | tee ...` without it reports THIS step's outcome as
+          # 'success' even when the python command genuinely fails (its exit
+          # code is masked by tee's own success) -- the exact incident this
+          # closes: a missing commands.ops.registry_watch module (a real
+          # commit-scoping gap, fixed the same day) failed silently for
+          # every run since first deploy, and the downstream commit step's
+          # `if: steps.watch.outcome == 'success'` check never caught it.
+          set -o pipefail
           PYTHONPATH=scripts/pipeline python -m commands.ops.registry_watch \
             --auto-apply --held-report-out /tmp/held-report.json \
             | tee /tmp/watch-stdout.txt
