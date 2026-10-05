@@ -18,6 +18,7 @@ If --dry-run is provided, prints what would be written without writing files.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -56,6 +57,15 @@ RELEASES_DATA_FILES = {
     "data/platforms_order.json",
 }
 
+# releases.aspose.org's homepage also lists products by walking the
+# products.aspose.org content tree: a platform landing page
+# content/products.aspose.org/en/<family>/<platform>/_index.md being added,
+# removed, or having its draft flag flipped changes which products releases
+# shows. Only that exact shape matters (en locale, depth 2 under the site
+# root, file named _index.md); every other products.aspose.org path keeps
+# mapping to products.aspose.org.yml alone.
+RELEASES_DEPENDENT_CONTENT = re.compile(r"^content/products\.aspose\.org/en/[^/]+/[^/]+/_index\.md$")
+
 # Paths outside content/ that affect all sites (theme, layout, static assets)
 GLOBAL_PATHS = ["themes/", "layouts/", "archetypes/", "static/", "i18n/"]
 
@@ -93,6 +103,10 @@ def map_path_to_workflow(path):
 
     # data/*.json files that feed releases.aspose.org's data-driven homepage
     if path in RELEASES_DATA_FILES:
+        workflows.add(f"{RELEASES_SITE}.yml")
+
+    # products.aspose.org platform pages also feed the releases homepage roster
+    if RELEASES_DEPENDENT_CONTENT.fullmatch("/".join(parts)):
         workflows.add(f"{RELEASES_SITE}.yml")
 
     return workflows, False

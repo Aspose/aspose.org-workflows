@@ -69,5 +69,82 @@ class TestConfigAndGlobalPaths(unittest.TestCase):
         self.assertIn("releases.aspose.org.yml", workflows)
 
 
+class TestReleasesDependentProductsContent(unittest.TestCase):
+    """products.aspose.org platform _index.md pages also feed releases.aspose.org."""
+
+    PRODUCTS = "products.aspose.org.yml"
+    RELEASES = "releases.aspose.org.yml"
+
+    def test_platform_index_maps_to_products_and_releases(self):
+        workflows, is_global = _mod.map_path_to_workflow(
+            "content/products.aspose.org/en/gis/net/_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS, self.RELEASES})
+        self.assertFalse(is_global)
+
+    def test_non_en_locale_maps_to_products_only(self):
+        workflows, _ = _mod.map_path_to_workflow(
+            "content/products.aspose.org/de/gis/net/_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS})
+
+    def test_depth_three_index_maps_to_products_only(self):
+        workflows, _ = _mod.map_path_to_workflow(
+            "content/products.aspose.org/en/gis/net/features/_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS})
+
+    def test_family_level_index_maps_to_products_only(self):
+        workflows, _ = _mod.map_path_to_workflow(
+            "content/products.aspose.org/en/gis/_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS})
+
+    def test_non_index_file_under_platform_maps_to_products_only(self):
+        for name in ("overview.md", "index.md", "_index.de.md", "_index.md.bak"):
+            workflows, _ = _mod.map_path_to_workflow(
+                f"content/products.aspose.org/en/gis/net/{name}"
+            )
+            self.assertEqual(workflows, {self.PRODUCTS}, name)
+
+    def test_other_sites_platform_index_does_not_touch_releases(self):
+        workflows, _ = _mod.map_path_to_workflow(
+            "content/docs.aspose.org/en/pdf/net/_index.md"
+        )
+        self.assertEqual(workflows, {"docs.aspose.org.yml"})
+
+    def test_existing_data_files_still_map_to_releases_only(self):
+        for f in _mod.RELEASES_DATA_FILES:
+            workflows, is_global = _mod.map_path_to_workflow(f)
+            self.assertEqual(workflows, {self.RELEASES}, f)
+            self.assertFalse(is_global, f)
+
+    def test_global_paths_still_return_all_workflows(self):
+        workflows, is_global = _mod.map_path_to_workflow("themes/products/layouts/baseof.html")
+        self.assertTrue(is_global)
+        self.assertEqual(workflows, _mod.get_all_deploy_workflows())
+
+    def test_windows_backslash_path_behaves_the_same(self):
+        workflows, _ = _mod.map_path_to_workflow(
+            "content\\products.aspose.org\\en\\gis\\net\\_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS, self.RELEASES})
+        workflows, _ = _mod.map_path_to_workflow(
+            "content\\products.aspose.org\\de\\gis\\net\\_index.md"
+        )
+        self.assertEqual(workflows, {self.PRODUCTS})
+
+    def test_near_miss_shapes_do_not_trigger_releases(self):
+        # fullmatch: a trailing newline or a suffix must not slip through `$`.
+        for path in (
+            "content/products.aspose.org/en/gis/net/_index.md\n",
+            "content/products.aspose.org/en/gis/net/_index.md.bak",
+            "content/products.aspose.org/en/gis/net/_index.md ",
+            "content/products.aspose.org/en/gis/net/_INDEX.md",
+        ):
+            workflows, _ = _mod.map_path_to_workflow(path)
+            self.assertNotIn(self.RELEASES, workflows, path)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ python detect_changes.py <content_repo_path> <last_scanned_sha> [--manifest <pat
 - If `--manifest` is provided, writes a `deploy_manifest.json` with per-workflow tracking
 - On first run (no SHA), triggers all workflows
 - Outputs: `workflows`, `has_changes`, `new_sha`, `global_change` (via `GITHUB_OUTPUT`)
+- `releases.aspose.org` has no `content/` tree of its own. It is redeployed when one of the six `data/*.json` files it renders from changes, and also when a products.aspose.org platform landing page (`content/products.aspose.org/en/<family>/<platform>/_index.md`, exactly that shape) is added, removed, or has its `draft` flag flipped, because the releases homepage lists products from that tree. Such a path maps to both `products.aspose.org.yml` and `releases.aspose.org.yml`; any other products.aspose.org path (other locales, deeper pages, non-`_index.md` files) maps to `products.aspose.org.yml` only
 
 ### trigger_workflows.py
 
