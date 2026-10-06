@@ -4,7 +4,7 @@
   "previous_sha": "f63127f603f301c177c46e6904ec253c4d32a152",
   "detected_at": "2026-10-06T11:02:41.421625+00:00",
   "global_change": true,
-  "state": "production",
+  "state": "completed",
   "staged_workflows": [
     {
       "workflow": "blog.aspose.org.yml",
@@ -12,8 +12,8 @@
       "staging_run_id": 37453810753,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:23Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458183712,
+      "production_status": "success"
     },
     {
       "workflow": "docs.aspose.org.yml",
@@ -21,8 +21,8 @@
       "staging_run_id": 37453824294,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:30Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458195296,
+      "production_status": "success"
     },
     {
       "workflow": "kb.aspose.org.yml",
@@ -30,8 +30,8 @@
       "staging_run_id": 37453837847,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:36Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458207721,
+      "production_status": "success"
     },
     {
       "workflow": "products.aspose.org.yml",
@@ -39,8 +39,8 @@
       "staging_run_id": 37453851747,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:43Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458220071,
+      "production_status": "success"
     },
     {
       "workflow": "reference.aspose.org.yml",
@@ -48,8 +48,8 @@
       "staging_run_id": 37453864559,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:50Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458232858,
+      "production_status": "success"
     },
     {
       "workflow": "releases.aspose.org.yml",
@@ -57,8 +57,8 @@
       "staging_run_id": 37453876715,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:42:56Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458244996,
+      "production_status": "success"
     },
     {
       "workflow": "websites.aspose.org.yml",
@@ -66,12 +66,12 @@
       "staging_run_id": 37453889228,
       "staging_status": "success",
       "production_trigger_time": "2026-10-06T11:43:03Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 37458257324,
+      "production_status": "success"
     }
   ],
   "production_only_workflows": [],
-  "completed_at": null,
+  "completed_at": "2026-10-06T17:48:12.218808+00:00",
   "failed_at": null,
   "error": null
 }
