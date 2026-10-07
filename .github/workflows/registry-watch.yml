@@ -43,6 +43,37 @@
 # design (mechanism="registry_watch") -- a cross-run check that catches a
 # sustained abnormal pattern the old single-run 5-entry cap alone could not.
 #
+# MT074-2026-10-05-PDF-JAVA-FEATURE-REFRESH-AND-HARDENING, W2/W3 (2026-10-07):
+# adds ONE non-blocking step after the commit/push logic above (which is
+# unchanged): the RELEASE TRIGGER. For every registry entry the watcher changed
+# THIS run it runs `fleet_drift.py --release-trigger <family>/<platform>`
+# (clone-free; reads the just-updated data/package_registry.json) to refresh
+# that product's release_state and file/update its single deduplicated
+# `FLEET-PROPAGATE-{family}-{platform}` issue on Aspose/aspose.org -- the
+# missing "new release detected -> work item" link. ISSUE-ONLY: no content, no
+# registry write beyond what the watcher already did (fleet_drift also updates
+# its own state file inside the runner workspace, which is never committed
+# here -- the weekly upstream-monitor PR carries state). `continue-on-error`
+# so a failure there can never block or undo the registry update; it is
+# surfaced in the job summary instead.
+#
+# Change-list source: registry_watch.py writes no machine-readable list of the
+# entries it applied (its stdout summary is human text; --held-report-out
+# covers only held/rejected), so the job snapshots data/package_registry.json
+# before the watch step and diffs entry-by-entry against the updated file
+# afterwards. Only applied entries differ (the watcher replaces just those),
+# so the diff is exactly the set of changed products -- independent of whether
+# the commit/push step ran or was a no-op.
+#
+# Hardened (S-115): `permissions: contents: read` (the push to
+# Aspose/aspose.org and every issue operation go through the REPO_TOKEN/
+# GH_TOKEN PAT, never GITHUB_TOKEN), a concurrency group with
+# cancel-in-progress: false (a run is never killed between its registry write
+# and its push), the existing timeout, no new secrets, actions keep their tag
+# pins, schedule unchanged. Cost: public workflows repo; the release-trigger
+# step is clone-free (ls-remote + the compare API) and a no-op on the many runs
+# where nothing changed.
+#
 # Required secrets (set in Aspose/aspose.org-workflows, same ones every
 # other migrated watcher already uses -- not new exposure, and this
 # workflow's own script never touches anything but data/package_registry.json):
@@ -55,6 +86,13 @@ on:
   schedule:
     - cron: '17 */6 * * *'  # every 6 hours
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-watch
+  cancel-in-progress: false
 
 jobs:
   check-publish-status:
@@ -95,6 +133,11 @@ jobs:
           echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
           .venv/bin/pip install -r scripts/pipeline/requirements-ci.txt --quiet
 
+      # Pre-watch copy of the registry: the release-trigger step below diffs against it to find
+      # which entries the watcher changed this run (see header).
+      - name: Snapshot the registry before the watch (for the release-trigger change list)
+        run: cp data/package_registry.json "$RUNNER_TEMP/package_registry.before.json"
+
       - name: Observe all 6 registries and stage eligible changes
         id: watch
         run: |
@@ -125,6 +168,57 @@ jobs:
           git add data/package_registry.json
           git commit -m "chore(package-registry): automated registry-watch update (MT075-T7/T9/T10)"
           git push origin HEAD:main
+
+      # MT074 W2 -- RELEASE TRIGGER. Non-blocking and issue-only (see header): one
+      # `fleet_drift.py --release-trigger` per product whose registry entry changed this run.
+      - name: Release trigger -- refresh release_state and file/update the FLEET-PROPAGATE issue (non-blocking)
+        id: release_trigger
+        if: steps.watch.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+        run: |
+          CHANGED=$(python - "$RUNNER_TEMP/package_registry.before.json" data/package_registry.json <<'PYEOF'
+          import json
+          import sys
+
+          before = json.load(open(sys.argv[1], encoding="utf-8"))
+          after = json.load(open(sys.argv[2], encoding="utf-8"))
+          for family in sorted(after):
+              platforms = after[family]
+              if not isinstance(platforms, dict):
+                  continue
+              for platform in sorted(platforms):
+                  if (before.get(family) or {}).get(platform) != platforms[platform]:
+                      print(f"{family}/{platform}")
+          PYEOF
+          )
+          if [ -z "$CHANGED" ]; then
+            echo "No registry entries changed this run -- nothing to trigger."
+            exit 0
+          fi
+          FAILED=0
+          echo "### Release trigger" >> "$GITHUB_STEP_SUMMARY"
+          for PRODUCT in $CHANGED; do
+            echo "Release trigger for $PRODUCT"
+            if PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/diagnostics/fleet_drift.py \
+                 --release-trigger "$PRODUCT" --repo Aspose/aspose.org; then
+              echo "- $PRODUCT: triggered" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- $PRODUCT: FAILED (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Note a failed release trigger in the job summary (never blocks)
+        if: steps.release_trigger.outcome == 'failure'
+        run: |
+          echo "::warning::The release-trigger step failed (non-blocking). The registry update above is unaffected."
+          {
+            echo "> Warning: the release-trigger step failed (non-blocking). The registry update and push above are unaffected;"
+            echo "> the weekly upstream-monitor run will still file the FLEET-PROPAGATE issue for any drifted product."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report held/rejected candidates (visibility only, never blocks)
         if: always() && hashFiles('/tmp/held-report.json') != ''
