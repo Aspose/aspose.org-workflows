@@ -2,24 +2,106 @@
 #
 # LOCATION: Aspose/aspose.org-workflows  (NOT in Aspose/aspose.org)
 #
-# MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-06 (2026-09-17): seventh
-# live migration, and the most involved of the 4 PR-gated conversions --
-# see maven-publish-watcher.yml's header for the general PR-gated rationale
+# MT074-2026-10-05-PDF-JAVA-FEATURE-REFRESH-AND-HARDENING, W1/W3 (2026-10-07):
+# v2 of this workflow. What changed versus the MT069 PHB-06 version described
+# in the HISTORY section below:
+#
+#   * The default path is now the CLONE-FREE fleet drift classifier,
+#     scripts/pipeline/commands/diagnostics/fleet_drift.py (ls-remote + GitHub
+#     compare API + registry projection; no clone, no clone cache). It
+#     classifies every active product in data/products.json as NO_CHANGE |
+#     NON_SOURCE | SOURCE | API_TOUCHED | UNKNOWN, writes the per-product drift
+#     fields into data/content_propagation_state.json (the single propagation
+#     truth, never the propagation fields themselves) and files/updates/closes
+#     ONE deduplicated issue per product on Aspose/aspose.org, titled
+#     `FLEET-PROPAGATE-{family}-{platform}: ...` (capped per run by
+#     --max-issues-per-run; closes are exempt from the cap).
+#   * `repo_patrol.py sweep` (which clones every product) is kept ONLY behind
+#     the workflow_dispatch boolean input `deep_sweep` (default false). It
+#     never runs on the schedule. Its report is uploaded as an artifact; it
+#     writes nothing that is committed.
+#   * ISSUE-SOURCE DECISION: check_upstream_drift.py is NO LONGER run by this
+#     workflow, with or without --file-issues. fleet_drift.py is the single
+#     issue source -- two systems filing for one product would duplicate every
+#     work item. The only other thing check_upstream_drift produced was
+#     data/upstream_drift_state.json, whose only consumers were
+#     bounded_auto_regen.py (see next bullet) -- so that file and
+#     data/fleet_freshness_snapshot.json (derived from the clone-based sweep
+#     report, with a wall-clock timestamp per row) are no longer written here;
+#     their last committed content simply stays as it is. Legacy per-product
+#     issues (`Upstream drift: {family}/{platform} -- {sha}`, labels
+#     `upstream-drift` + `product:{family}-{platform}`) are not touched by this
+#     workflow; they are migrated by hand after the first successful v2 run
+#     (comment + close), see the MT074 wiring deploy runbook.
+#   * The "Bounded automatic regeneration" step is DROPPED. It was
+#     observability-only (its output went to /tmp and was never read) and it
+#     selected LOW/MEDIUM impact products from the sweep report -- but in the
+#     fleet classifier's sweep-compatible output UNKNOWN maps to MEDIUM, so the
+#     selector would now present "could not classify" products as auto-regen
+#     candidates. It is not the propagation queue; the FLEET-PROPAGATE issues
+#     are. The script itself is untouched.
+#   * EXIT SEMANTICS CHANGED (recorded tradeoff): the job no longer fails
+#     merely because drift exists -- a drift finding is a work item (an issue),
+#     not a workflow failure; failing red every Monday for 25+ drifted products
+#     was noise, not signal. The job now fails ONLY on infrastructure errors:
+#     missing/rejected token, fleet_drift exit 1 (a GitHub issue operation
+#     failed) or 2 (configuration error), an unreadable/empty ledger, or when
+#     the share of UNKNOWN-tier products exceeds MAX_UNKNOWN_SHARE (default
+#     0.25) -- the blind-spot alarm: UNKNOWN is where API / rate-limit /
+#     truncation failures land, so a high share means the monitor cannot see.
+#   * OUTPUTS: the Markdown ledger is written to the job summary
+#     ($GITHUB_STEP_SUMMARY) and the ledger JSON + MD + sweep-compatible JSON +
+#     stdout log are uploaded as the `fleet-drift-ledger` artifact (all under
+#     the runner temp dir; nothing under the checkout). This repo is PUBLIC, so
+#     both are world-readable -- intentional: every field derives from public
+#     upstream repos / public registries. They are nonetheless TRIMMED (the
+#     per-product baseline-store disagreement detail is reduced to counts) and
+#     SCRUBBED of credential-shaped strings by the "public ledger" step; the
+#     untrimmed ledger never leaves the runner (the gate reads it there).
+#   * STEP CONDITIONS: every step after the fleet run carries an explicit
+#     `!cancelled() && <step>.outcome ...` condition instead of the implicit
+#     success(), so a failed summary/upload step cannot skip the state PR, a red
+#     gate cannot skip a requested deep sweep (which therefore runs BEFORE the
+#     gate), and the PR step can never run on `always()`.
+#   * STATE PR: the PR (never merged by any automated process) is opened ONLY
+#     when data/content_propagation_state.json changed NON-VOLATILELY: an
+#     inline step compares content_propagation_state.canonical_for_compare()
+#     of the committed file against the new one, so observed_at /
+#     last_issue_number churn alone never opens a PR (E12). add-paths is
+#     limited to that one file -- the only data file this run writes.
+#   * HARDENING (S-115): permissions are contents: read only (every write --
+#     issues on Aspose/aspose.org, the PR push, the failure-tracking issue --
+#     goes through the REPO_TOKEN/GH_TOKEN PAT, so GITHUB_TOKEN needs nothing
+#     more), a concurrency group (cancel-in-progress: false, so a run is never
+#     killed between filing issues and recording them in the state), a
+#     timeout, and no new secrets. Actions keep this file's tag-pin style.
+#   * COST: this repo is public (standard runners are free), and the default
+#     path is clone-free -- minutes-scale per week, which also keeps the MT069
+#     minutes budget intact. The pip cache is keyed on requirements-ci.txt;
+#     fleet_drift's whole import closure needs only pyyaml from it. The heavy
+#     requirements.txt is installed ONLY for a deep_sweep run.
+#
+# HISTORY (MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, PHB-06, 2026-09-17):
+# seventh live migration, and the most involved of the 4 PR-gated conversions
+# -- see maven-publish-watcher.yml's header for the general PR-gated rationale
 # (same explicit user decision, 2026-09-17). Two things specific to this
-# workflow:
+# workflow, as built then (SUPERSEDED by the MT074 notes above, kept for the
+# record of why the pieces existed):
 #
 # 1. Only the final "Commit fleet snapshot + drift state" step actually
-#    writes anything (data/fleet_freshness_snapshot.json,
+#    wrote anything (data/fleet_freshness_snapshot.json,
 #    data/upstream_drift_state.json) -- converted to a PR here, same as the
-#    other 3 bots. The "Bounded automatic regeneration" step remains
-#    observability-only (its own comment already says so in the private
-#    original) -- unchanged, no PR needed for it.
+#    other 3 bots. The "Bounded automatic regeneration" step was
+#    observability-only (its own comment already said so in the private
+#    original). [MT074: replaced by the state PR + the dropped regen step above.]
 # 2. check_upstream_drift.py's issue-filing defaults its --repo to the
 #    GITHUB_REPOSITORY env var, which GitHub Actions auto-sets to
 #    Aspose/aspose.org-workflows when running here -- WRONG for this
 #    workflow's real purpose. Passed --repo Aspose/aspose.org explicitly to
 #    correct this, rather than relying on the env-var override (GITHUB_* is
 #    a reserved/auto-injected variable; an explicit CLI flag is unambiguous).
+#    [MT074: the same explicit --repo is passed to fleet_drift.py for the
+#    same reason.]
 #
 # CORRECTED (MT069-2026-09-16-GHA-MINUTES-REARCHITECTURE, 2026-09-18): the
 # "Sweep drifted products" step's 100% fetch_failures was misdiagnosed for
@@ -32,12 +114,13 @@
 # and identical regardless of which repo (public or private) runs this
 # workflow. No PAT was ever needed. Fixed in Aspose/aspose.org commit
 # 72821fbb4a (cmd_sweep() now self-heals a cold cache via the pre-existing
-# ensure_clone(), a plain unauthenticated git clone) -- since this workflow
-# checks out Aspose/aspose.org fresh on every run, the next run here picks up
-# the fix automatically with no redeployment needed for the code itself.
+# ensure_clone(), a plain unauthenticated git clone). [MT074: that sweep now
+# only runs behind `deep_sweep`; the default path never touches a clone.]
 #
 # IMPORTANT (human-authority boundary, inherited repo-wide norm, MT062/MT066):
 # this workflow (and no automated process) may ever merge the PR it opens.
+# No content is refreshed, nothing is committed to main and no content is
+# pushed from CI -- refresh stays agent-run with independent verification.
 #
 # Required secrets (set in Aspose/aspose.org-workflows, same ones the SEO
 # templates and the other migrated bots already use -- not new exposure):
@@ -49,7 +132,23 @@ name: Upstream Drift Monitor
 on:
   schedule:
     - cron: '0 8 * * 1'  # Monday 08:00 UTC -- matches the private original's cadence
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      deep_sweep:
+        description: 'Also run the clone-based repo_patrol sweep (heavy; clones every product). Report is uploaded as an artifact, nothing is committed.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-monitor
+  cancel-in-progress: false
+
+env:
+  # Blind-spot alarm: fail the job when more than this share of products land in the UNKNOWN tier.
+  MAX_UNKNOWN_SHARE: '0.25'
 
 jobs:
   check-drift:
@@ -82,65 +181,195 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: scripts/pipeline/requirements-ci.txt
 
       - name: Set up venv
+        id: venv
         run: |
           python -m venv .venv
           echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
-          .venv/bin/pip install -q -r scripts/pipeline/requirements.txt
+          .venv/bin/pip install -q -r scripts/pipeline/requirements-ci.txt
 
-      - name: Detect upstream drift (T9, deduped issue filing on the private Aspose/aspose.org repo)
+      # Clone-free fleet drift (MT074 B10/W1): the default, scheduled path. Never fails the step
+      # itself -- the exit code is captured and judged by the "gate" step below, AFTER the ledger
+      # has been published, so an infrastructure failure still leaves evidence behind.
+      - name: Fleet drift (clone-free; one deduped FLEET-PROPAGATE issue per drifted product on Aspose/aspose.org)
         id: drift
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
           set +e
-          PYTHONPATH=scripts/pipeline python scripts/ci/checks/check_upstream_drift.py \
-            --file-issues --repo Aspose/aspose.org \
-            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "drift_exit=$?" >> "$GITHUB_OUTPUT"
+          OUT="$RUNNER_TEMP/fleet-drift"
+          mkdir -p "$OUT"
+          PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/diagnostics/fleet_drift.py \
+            --update-state --file-issues --repo Aspose/aspose.org --max-issues-per-run 10 \
+            --json-out "$OUT/ledger.json" --md-out "$OUT/ledger.md" --sweep-out "$OUT/sweep_report.json" \
+            2>&1 | tee "$OUT/fleet_drift.log"
+          RC=${PIPESTATUS[0]}
+          echo "fleet_exit=$RC" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # Corrected 2026-09-18 -- see file header (never a PAT gap; fixed in
-      # Aspose/aspose.org commit 72821fbb4a, picked up automatically here).
-      - name: Sweep drifted products (existing S-94 mechanism, now scheduled)
-        if: steps.drift.outputs.drift_exit == '1'
+      # This workflows repo is PUBLIC, so the job summary and the uploaded artifact are world-readable.
+      # Every ledger field derives from public upstream repos and public registries (intentional
+      # visibility). Even so, this step trims what the gate does not need (per-product baseline-store
+      # disagreement detail is cut down to counts) and scrubs anything credential-shaped. The RAW ledger
+      # stays on the runner (the gate reads it there); only $RUNNER_TEMP/fleet-drift-public is summarised
+      # and uploaded. Fails closed: if this step breaks, nothing is published.
+      - name: Prepare the public (trimmed, scrubbed) ledger
+        id: public
+        if: ${{ !cancelled() && steps.drift.outcome != 'skipped' }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          raw = Path(os.environ["RUNNER_TEMP"]) / "fleet-drift"
+          pub = Path(os.environ["RUNNER_TEMP"]) / "fleet-drift-public"
+          pub.mkdir(parents=True, exist_ok=True)
+          SECRET_RE = re.compile(
+              r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|x-access-token:[^@\s]+@"
+              r"|://[^/\s:@]+:[^/\s@]+@|Bearer\s+[A-Za-z0-9._~+/=-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
+
+
+          def write(name, text):
+              (pub / name).write_bytes(SECRET_RE.sub("[redacted]", text).encode("utf-8"))
+
+
+          for name in ("sweep_report.json", "fleet_drift.log"):
+              src = raw / name
+              if src.is_file():
+                  write(name, src.read_text(encoding="utf-8", errors="replace"))
+          if not (raw / "ledger.json").is_file():
+              print("no ledger to publish")
+          else:
+              ledger = json.loads((raw / "ledger.json").read_text(encoding="utf-8"))
+              stores = ledger.get("baseline_stores", {})
+              disagree = int(stores.get("disagree_count", 0))
+              missing = len(stores.get("missing_baseline_products", []))
+              for row in ledger.get("products", {}).values():
+                  row.pop("baselines_sha", None)
+                  row.pop("baseline_stores_disagree", None)
+              proj = stores.get("projection_staleness")
+              ledger["baseline_stores"] = {
+                  "disagree_count": disagree,
+                  "missing_baseline_count": missing,
+                  "projection_stale_count": proj.get("stale_count") if isinstance(proj, dict) else None,
+              }
+              write("ledger.json", json.dumps(ledger, indent=2, sort_keys=True) + "\n")
+              md_path = raw / "ledger.md"
+              if md_path.is_file():
+                  out, skipping = [], False
+                  for line in md_path.read_text(encoding="utf-8").splitlines():
+                      if line.startswith("## Baseline stores"):
+                          skipping = True
+                          out += ["## Baseline stores", "",
+                                  f"Disagree: {disagree} | Missing in baselines store: {missing} (product names omitted from this public report)", ""]
+                          continue
+                      if skipping:
+                          if line.startswith("_Generated"):
+                              skipping = False
+                              out.append(line)
+                          continue
+                      if line.startswith("|"):
+                          line = line.rstrip()[:-1].rsplit("|", 1)[0].rstrip() + " |"  # drop the last "Stores disagree" column
+                      out.append(line)
+                  write("ledger.md", "\n".join(out) + "\n")
+          print("public ledger written to", pub)
+          PYEOF
+
+      - name: Publish the ledger to the job summary
+        if: ${{ !cancelled() && steps.drift.outcome != 'skipped' }}
+        env:
+          FLEET_EXIT: ${{ steps.drift.outputs.fleet_exit }}
+        run: |
+          OUT="$RUNNER_TEMP/fleet-drift-public"
+          if [ -f "$OUT/ledger.md" ]; then
+            cat "$OUT/ledger.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "fleet_drift produced no public ledger (exit code $FLEET_EXIT) -- see the run log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the ledger artifact
+        if: ${{ !cancelled() && steps.drift.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-drift-ledger
+          path: ${{ runner.temp }}/fleet-drift-public/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Opt-in only (workflow_dispatch deep_sweep=true): the heavy clone-based S-94 sweep. Never on the
+      # schedule. Runs BEFORE the gate and state PR on purpose, with its own explicit conditions, so a
+      # red gate (or a failed summary/upload step) never silently skips a requested sweep. Writes only
+      # reports/discovery/ (uncommitted); the report is uploaded below.
+      - name: Install the full pipeline requirements (deep sweep only)
+        if: ${{ !cancelled() && inputs.deep_sweep == true && steps.venv.outcome == 'success' }}
+        run: .venv/bin/pip install -q -r scripts/pipeline/requirements.txt
+
+      - name: Deep sweep (opt-in, clone-based, existing S-94 mechanism)
+        if: ${{ !cancelled() && inputs.deep_sweep == true && steps.venv.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/diagnostics/repo_patrol.py sweep
 
-      - name: Persist fleet freshness snapshot (git-tracked, T5/T9)
-        if: steps.drift.outputs.drift_exit == '1'
+      - name: Upload the deep sweep report
+        if: ${{ !cancelled() && inputs.deep_sweep == true && steps.venv.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-sweep-report
+          path: reports/discovery/sweep_report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Non-volatile comparison (E12): wall-clock / bookkeeping fields live under each product's
+      # `volatile` key, which canonical_for_compare strips, so a re-run over identical upstream
+      # truth never opens a PR. A missing committed file counts as an empty state (first run).
+      - name: Detect a non-volatile change of the committed propagation state
+        id: state_diff
+        if: ${{ !cancelled() && steps.drift.outcome == 'success' && (steps.drift.outputs.fleet_exit == '0' || steps.drift.outputs.fleet_exit == '1') }}
+        env:
+          NEW_STATE: data/content_propagation_state.json
         run: |
-          PYTHONPATH=scripts/pipeline python - <<'PYEOF'
+          export COMMITTED_STATE="$RUNNER_TEMP/committed_state.json"
+          git show HEAD:data/content_propagation_state.json > "$COMMITTED_STATE" 2>/dev/null || echo '{}' > "$COMMITTED_STATE"
+          python - <<'PYEOF'
           import json
+          import os
+          import sys
           from pathlib import Path
-          sweep = json.loads(Path("reports/discovery/sweep_report.json").read_text(encoding="utf-8"))
-          rows = {}
-          for e in sweep.get("changed", []) + sweep.get("unchanged", []):
-              key = f"{e['family']}/{e['platform']}"
-              rows[key] = {
-                  "repo_sha_cached": e.get("stored_sha") or e.get("sha"),
-                  "repo_sha_live": e.get("current_sha") or e.get("sha"),
-                  "impact": e.get("impact", "NONE"),
-                  "checked_at": sweep.get("generated_at"),
-              }
-          Path("data/fleet_freshness_snapshot.json").write_text(
-              json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          sys.path.insert(0, "scripts/pipeline/lib")
+          import content_propagation_state as cps
+
+
+          def load(path):
+              try:
+                  data = json.loads(Path(path).read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  data = {}
+              if not isinstance(data, dict) or not isinstance(data.get("products"), dict):
+                  data = {"schema_version": cps.SCHEMA_VERSION, "products": {}}
+              return cps.canonical_for_compare(data)
+
+
+          old, new = load(os.environ["COMMITTED_STATE"]), load(os.environ["NEW_STATE"])
+          changed = sorted(k for k in set(old["products"]) | set(new["products"])
+                           if old["products"].get(k) != new["products"].get(k))
+          if old.get("schema_version") != new.get("schema_version"):
+              changed.append("(schema_version)")
+          flag = "true" if changed else "false"
+          print(f"non-volatile state change: {flag} ({len(changed)} product(s) differ)")
+          for key in changed[:50]:
+              print(f"  {key}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"changed={flag}\n")
           PYEOF
 
-      - name: Bounded automatic regeneration (T10, LOW/MEDIUM only, capped) -- observability-only, unchanged
-        if: steps.drift.outputs.drift_exit == '1'
-        run: |
-          PYTHONPATH=scripts/pipeline python scripts/pipeline/commands/ops/bounded_auto_regen.py select --json \
-            > /tmp/auto_regen_selection.json
-          cat /tmp/auto_regen_selection.json
-          # Same as the private original: read-only "select" mode, observability-only.
-          # Wiring its output into a live regen+commit loop is out of scope for this
-          # migration, unchanged from the private original's own deferred status.
-
-      - name: Open a PR with the fleet snapshot + drift state (instead of committing directly)
-        if: steps.drift.outputs.drift_exit == '1'
+      - name: Open a PR with the propagation state (instead of committing directly)
+        if: ${{ !cancelled() && steps.state_diff.outputs.changed == 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
@@ -149,38 +378,81 @@ jobs:
             ## Weekly Upstream Drift Snapshot
 
             Generated by `upstream-monitor.yml` running in
-            `Aspose/aspose.org-workflows` (migrated public execution -- MT069 PHB-06).
+            `Aspose/aspose.org-workflows` (migrated public execution -- MT069 PHB-06,
+            clone-free fleet drift since MT074).
             This workflow never merges its own PR -- a human review is required.
 
-            Note: the "Sweep drifted products" step's prior fetch_failures were a
-            missing-clone-cache bug (not the PAT gap issue #94 originally
-            suspected) -- fixed in Aspose/aspose.org commit 72821fbb4a, see this
-            workflow's own file header for detail.
+            Carries only `data/content_propagation_state.json`: the per-product
+            upstream drift fields recorded by `fleet_drift.py` (the propagation
+            fields are written solely by the capability-surface gate). This PR is
+            opened only when the state changed non-volatilely -- timestamp /
+            issue-number churn alone never opens one. The full ledger is attached
+            to the workflow run as the `fleet-drift-ledger` artifact and rendered
+            in its job summary; drift itself is tracked by the per-product
+            `FLEET-PROPAGATE-{family}-{platform}` issues on Aspose/aspose.org.
           branch: automated/upstream-monitor-freshness-snapshot
           commit-message: 'chore(freshness): weekly upstream drift snapshot'
           add-paths: |
-            data/fleet_freshness_snapshot.json
-            data/upstream_drift_state.json
+            data/content_propagation_state.json
 
-      - name: Fail the job if drift was found (surfaces in workflow status/notifications)
-        if: steps.drift.outputs.drift_exit == '1'
-        run: exit 1
+      # Drift is NOT a failure. This step fails the job only for infrastructure problems and for
+      # a blind monitor (UNKNOWN-tier share above MAX_UNKNOWN_SHARE). `reason` feeds the
+      # failure-tracking issue below.
+      - name: Gate -- fail on infrastructure errors or a blind monitor, never on drift alone
+        id: gate
+        if: ${{ !cancelled() && steps.drift.outcome != 'skipped' }}
+        env:
+          FLEET_EXIT: ${{ steps.drift.outputs.fleet_exit }}
+          FLEET_JSON: ${{ runner.temp }}/fleet-drift/ledger.json
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+
+          def fail(reason):
+              print(f"::error::{reason}")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write(f"reason={reason}\n")
+              sys.exit(1)
+
+
+          rc = os.environ.get("FLEET_EXIT", "")
+          if rc != "0":
+              fail(f"fleet_drift exited {rc or 'without a status'} (any non-zero code fails the gate: 1 = a GitHub issue operation failed, 2 = configuration error, others per fleet_drift.py's documented exit codes)")
+          try:
+              ledger = json.loads(Path(os.environ["FLEET_JSON"]).read_text(encoding="utf-8"))
+              summary = ledger["summary"]
+              total = int(summary["total"])
+              unknown = int(summary.get("by_tier", {}).get("UNKNOWN", 0))
+          except (OSError, ValueError, KeyError, TypeError):
+              fail("fleet_drift produced no readable ledger JSON")
+          if total <= 0:
+              fail("the fleet ledger contains zero products")
+          limit = float(os.environ.get("MAX_UNKNOWN_SHARE") or "0.25")
+          share = unknown / total
+          print(f"UNKNOWN tier: {unknown}/{total} ({share:.0%}); limit {limit:.0%}")
+          if share > limit:
+              fail(f"{unknown}/{total} products ({share:.0%}) are UNKNOWN-tier, above the {limit:.0%} blind-spot limit (API/rate-limit/truncation failures land in UNKNOWN)")
+          PYEOF
 
       - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
-        if: failure() && steps.drift.outputs.drift_exit != '1'
+        if: failure()
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
+          REASON: ${{ steps.token_check.outputs.reason || steps.gate.outputs.reason || 'see run log' }}
         run: |
           gh label create upstream-monitor-failure --repo Aspose/aspose.org-workflows \
             --color d73a4a --description "upstream-monitor.yml run failed" 2>/dev/null || true
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          REASON="${{ steps.token_check.outputs.reason || 'see run log' }}"
           BODY=$(cat <<EOF
           Run failed: $RUN_URL
           Trigger: ${{ github.event_name }} at $(date -u +%Y-%m-%dT%H:%M:%SZ)
           Likely cause: $REASON (this is for infra-level failures only -- a drift
-          finding itself is reported via the deduped issue on Aspose/aspose.org,
-          not here).
+          finding itself is reported via the deduped FLEET-PROPAGATE issue on
+          Aspose/aspose.org, not here, and never fails this job).
           EOF
           )
           EXISTING=$(gh issue list --repo Aspose/aspose.org-workflows --label upstream-monitor-failure --state open --json number --jq '.[0].number // empty')
