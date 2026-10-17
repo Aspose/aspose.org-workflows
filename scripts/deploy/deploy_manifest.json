@@ -4,7 +4,7 @@
   "previous_sha": "7ed929741dfe55aa8fe0a394afcb6ae3783fdc3e",
   "detected_at": "2026-10-17T08:17:46.653818+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "failed",
   "staged_workflows": [
     {
       "workflow": "blog.aspose.org.yml",
@@ -19,7 +19,7 @@
       "workflow": "docs.aspose.org.yml",
       "staging_trigger_time": "2026-10-17T08:18:04Z",
       "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_status": "timeout",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -27,8 +27,8 @@
     {
       "workflow": "kb.aspose.org.yml",
       "staging_trigger_time": "2026-10-17T08:18:11Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 39024024134,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -37,7 +37,7 @@
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-10-17T08:18:17Z",
       "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_status": "timeout",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -54,6 +54,6 @@
   ],
   "production_only_workflows": [],
   "completed_at": null,
-  "failed_at": null,
-  "error": null
+  "failed_at": "2026-10-17T10:26:47.211607+00:00",
+  "error": "Staging timeout: docs.aspose.org.yml (status: in_progress)"
 }
