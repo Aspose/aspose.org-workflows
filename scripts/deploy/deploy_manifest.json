@@ -9,8 +9,8 @@
     {
       "workflow": "blog.aspose.org.yml",
       "staging_trigger_time": "2026-10-17T08:17:57Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 39024020105,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -45,8 +45,8 @@
     {
       "workflow": "releases.aspose.org.yml",
       "staging_trigger_time": "2026-10-17T08:18:24Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 39016866148,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
