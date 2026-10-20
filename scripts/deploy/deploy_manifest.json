@@ -4,25 +4,25 @@
   "previous_sha": "fa3b65c0e854a1e4e7dda19e90b32c7830a53e41",
   "detected_at": "2026-10-20T09:11:08.005398+00:00",
   "global_change": false,
-  "state": "staging",
+  "state": "production",
   "staged_workflows": [
     {
       "workflow": "reference.aspose.org.yml",
       "staging_trigger_time": "2026-10-20T09:11:21Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 39398855417,
+      "staging_status": "success",
+      "production_trigger_time": "2026-10-20T13:14:11Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     },
     {
       "workflow": "releases.aspose.org.yml",
       "staging_trigger_time": "2026-10-20T09:11:28Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
-      "production_trigger_time": null,
+      "staging_run_id": 39398869224,
+      "staging_status": "success",
+      "production_trigger_time": "2026-10-20T13:14:18Z",
       "production_run_id": null,
-      "production_status": "pending"
+      "production_status": "triggered"
     }
   ],
   "production_only_workflows": [],
