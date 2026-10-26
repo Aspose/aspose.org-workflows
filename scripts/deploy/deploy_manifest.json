@@ -21,8 +21,8 @@
       "staging_run_id": 40302282469,
       "staging_status": "success",
       "production_trigger_time": "2026-10-26T12:57:28Z",
-      "production_run_id": null,
-      "production_status": "triggered"
+      "production_run_id": 40328056380,
+      "production_status": "success"
     },
     {
       "workflow": "kb.aspose.org.yml",
