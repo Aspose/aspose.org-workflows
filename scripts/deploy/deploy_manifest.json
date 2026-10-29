@@ -9,8 +9,8 @@
     {
       "workflow": "blog.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:44:25Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40859925129,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -18,8 +18,8 @@
     {
       "workflow": "docs.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:44:32Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40859939878,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -27,8 +27,8 @@
     {
       "workflow": "kb.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:44:39Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40859955308,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -36,8 +36,8 @@
     {
       "workflow": "products.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:44:46Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40859970859,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -54,8 +54,8 @@
     {
       "workflow": "releases.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:44:59Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40860000020,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
@@ -63,8 +63,8 @@
     {
       "workflow": "websites.aspose.org.yml",
       "staging_trigger_time": "2026-10-29T10:45:06Z",
-      "staging_run_id": null,
-      "staging_status": "triggered",
+      "staging_run_id": 40860017060,
+      "staging_status": "success",
       "production_trigger_time": null,
       "production_run_id": null,
       "production_status": "pending"
