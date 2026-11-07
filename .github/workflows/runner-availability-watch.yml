@@ -23,8 +23,15 @@
 # dispatches, cancels or reconfigures anything. Auto-disabling was the blunt instrument that
 # caused this mission to exist.
 #
-# THRESHOLDS ARE PROPOSALS, not measured facts: hourly check, 2 consecutive failures (~1-2 h),
-# 20 minutes queued. Tune them from real data once the runner carries real load.
+# QUIET HOURS (2026-11-06): the host is a laptop that gets fully powered off overnight, not just
+# idle -- so "offline" outside the owner's declared on-hours is an expected, not alertable, state.
+# The schedule below only runs 10:00-18:00 Pakistan Standard Time (UTC+5, no DST), i.e. 05:00-13:00
+# UTC. This is a monitoring window, not a runner-uptime guarantee: outside it, no check runs at
+# all, so a real problem that starts after 18:00 PKT and is still broken at the next in-window
+# check (10:17 PKT) is still caught -- there's just no page overnight for the expected nightly gap.
+#
+# THRESHOLDS ARE PROPOSALS, not measured facts: hourly check (within the window), 2 consecutive
+# failures (~1-2 h), 20 minutes queued. Tune them from real data once the runner carries real load.
 #
 # DEBOUNCE WITHOUT STATE: a GitHub-hosted runner keeps nothing between runs, so "consecutive" is
 # read from this workflow's own previous completed run (its conclusion), not from a file.
@@ -39,7 +46,7 @@ name: Runner Availability Watch
 
 on:
   schedule:
-    - cron: '17 * * * *'   # hourly, at :17
+    - cron: '17 5-13 * * *'   # hourly at :17, 05:00-13:00 UTC only = 10:00-18:00 PKT (quiet hours above)
   workflow_dispatch:
     inputs:
       runner_label:
