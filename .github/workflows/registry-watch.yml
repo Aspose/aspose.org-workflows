@@ -298,8 +298,11 @@ jobs:
             echo "Nothing held this run."
             exit 0
           fi
+          gh label create registry-watch-held --repo Aspose/aspose.org \
+            --color fbca04 --description "registry-watch.yml: candidate(s) held pending stronger evidence" 2>/dev/null || true
           today=$(date -u +%Y-%m-%d)
           BODY=$(cat <<EOF
+
           ## Registry Watch -- $HELD_COUNT candidate(s) held this run
 
           These did not clear \`check_registry_merge_safety.py\`'s gate (uncorroborated
