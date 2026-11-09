@@ -79,8 +79,38 @@
 # workflow's own script never touches anything but data/package_registry.json):
 #   REPO_TOKEN   - PAT with repo (full) scope on Aspose/aspose.org -- PRIMARY.
 #   GH_TOKEN     - same-shaped PAT, used only as a fallback if REPO_TOKEN is unset.
+#
+# TC-13, MT088-2026-11-07-PACKAGIST-REGISTRY-COVERAGE (plan section 12): this
+# mission's own root-cause audit found that composer/php had shipped (MT084)
+# correctly into THIS workflow's dispatch, but the name/header above still
+# only named the original 6 registries -- harmless cosmetically, but a real
+# symptom of the same "nobody swept every place a registry type is
+# enumerated" root cause the rest of this mission fixes in the Python
+# modules. Renamed below to not enumerate specific registries at all, so it
+# can never go stale again the same way. Three further, more serious fixes
+# landed in the same pass:
+#   1. `hashFiles('/tmp/...')` only ever matches paths under GITHUB_WORKSPACE,
+#      so the held-report step's guard was ALWAYS false -- 40/40 recent runs had
+#      held > 0 and ZERO `registry-watch-held` issues were ever filed. Fixed by
+#      writing to `$RUNNER_TEMP` and testing existence with a real `[ -f ]`
+#      shell check instead of `hashFiles`.
+#   2. The watch step's `continue-on-error: true` meant a crashed run (the
+#      KeyError this mission reproduced and fixed, MT088 TC-03/TC-05) still
+#      reported the JOB as successful: the failure-issue step never fired, and
+#      the success step actively CLOSED any open failure issue. A new explicit
+#      "fail the job" step (after the always() visibility steps have had their
+#      chance to run) now converts that into a real job failure.
+#   3. A new coverage step (Gate B, registry_coverage_scan.py --watch-coverage)
+#      runs after the watch and is included in that same fail condition, so a
+#      run that completes without crashing but silently skipped an active
+#      product, lost adapter coverage for a registry type, or left a product's
+#      install path non-executable (the exact TC-00 defect class) is ALSO red,
+#      not green.
+#   4. A new --summary-json artifact (per-entry category + counts) is uploaded
+#      and rendered into $GITHUB_STEP_SUMMARY for at-a-glance visibility --
+#      previously the only output was a one-line stdout string.
 
-name: Registry Watch (pypi/nuget/npm/go/cargo/maven, unified)
+name: Registry Watch (all registered package registries)
 
 on:
   schedule:
@@ -138,23 +168,37 @@ jobs:
       - name: Snapshot the registry before the watch (for the release-trigger change list)
         run: cp data/package_registry.json "$RUNNER_TEMP/package_registry.before.json"
 
-      - name: Observe all 6 registries and stage eligible changes
+      - name: Observe all registered registries and stage eligible changes
         id: watch
         run: |
-          # set -o pipefail is load-bearing, not defensive boilerplate: the
-          # first real pilot run of this workflow (2026-09-29) found that
-          # `python ... | tee ...` without it reports THIS step's outcome as
-          # 'success' even when the python command genuinely fails (its exit
-          # code is masked by tee's own success) -- the exact incident this
-          # closes: a missing commands.ops.registry_watch module (a real
-          # commit-scoping gap, fixed the same day) failed silently for
-          # every run since first deploy, and the downstream commit step's
-          # `if: steps.watch.outcome == 'success'` check never caught it.
           set -o pipefail
           PYTHONPATH=scripts/pipeline python -m commands.ops.registry_watch \
-            --auto-apply --held-report-out /tmp/held-report.json \
-            | tee /tmp/watch-stdout.txt
+            --auto-apply \
+            --held-report-out "$RUNNER_TEMP/held-report.json" \
+            --summary-json "$RUNNER_TEMP/watch-summary.json" \
+            | tee "$RUNNER_TEMP/watch-stdout.txt"
         continue-on-error: true
+
+      - name: Render the watch summary into the job summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/watch-stdout.txt" ]; then
+            {
+              echo "### Registry Watch summary"
+              echo '```'
+              cat "$RUNNER_TEMP/watch-stdout.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the per-entry watch summary as an artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-watch-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/watch-summary.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Commit and push directly (no PR, no human step, either tier)
         if: steps.watch.outcome == 'success'
@@ -220,12 +264,36 @@ jobs:
             echo "> the weekly upstream-monitor run will still file the FLEET-PROPAGATE issue for any drifted product."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # TC-09/TC-13 (MT088-2026-11-07-PACKAGIST-REGISTRY-COVERAGE): Gate B. Only
+      # meaningful once the watch itself produced a real summary -- a crashed
+      # watch is already caught by the "fail the job" step below, and running
+      # this against a non-existent/stale summary would just double-report the
+      # same underlying failure under a different name.
+      - name: Coverage check (Gate B) -- every active product observed, no silent gaps
+        id: coverage
+        if: steps.watch.outcome == 'success'
+        continue-on-error: true
+        run: |
+          PYTHONPATH=scripts/pipeline python -m commands.ops.registry_coverage_scan \
+            --watch-coverage --run-result "$RUNNER_TEMP/watch-summary.json" --json \
+            | tee "$RUNNER_TEMP/coverage-report.json"
+          {
+            echo "### Coverage check (Gate B)"
+            echo '```json'
+            cat "$RUNNER_TEMP/coverage-report.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Report held/rejected candidates (visibility only, never blocks)
-        if: always() && hashFiles('/tmp/held-report.json') != ''
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_TOKEN }}
         run: |
-          HELD_COUNT=$(.venv/bin/python -c "import json; d=json.load(open('/tmp/held-report.json')); print(len(d.get('held', [])))")
+          if [ ! -f "$RUNNER_TEMP/held-report.json" ]; then
+            echo "No held-report.json this run."
+            exit 0
+          fi
+          HELD_COUNT=$(.venv/bin/python -c "import json; d=json.load(open('$RUNNER_TEMP/held-report.json')); print(len(d.get('held', [])))")
           if [ "$HELD_COUNT" = "0" ]; then
             echo "Nothing held this run."
             exit 0
@@ -240,7 +308,7 @@ jobs:
           has been held for an unexpectedly long time.
 
           \`\`\`json
-          $(cat /tmp/held-report.json)
+          $(cat "$RUNNER_TEMP/held-report.json")
           \`\`\`
 
           Triggered by: [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) (Aspose/aspose.org-workflows).
@@ -254,6 +322,20 @@ jobs:
               --title "Registry Watch: candidates held pending stronger evidence" \
               --label registry-watch-held --body "$BODY"
           fi
+
+      # TC-13 (MT088-2026-11-07-PACKAGIST-REGISTRY-COVERAGE): before this step
+      # existed, `continue-on-error: true` on the watch step meant a crashed
+      # run (or, now, a coverage-gate failure) still left the overall JOB
+      # conclusion as 'success' -- the failure-issue step below never fired,
+      # and the close-issue step actively closed any open failure issue.
+      # Placed AFTER the always()-gated visibility steps above so they still
+      # get a chance to run even on a crash, but BEFORE the failure()/
+      # success() steps below so the job's own conclusion reflects reality.
+      - name: Fail the job if the watch crashed or the coverage gate failed
+        if: steps.watch.outcome != 'success' || steps.coverage.outcome == 'failure'
+        run: |
+          echo "::error::registry_watch crashed, or the coverage gate (Gate B) found an active product/registry-type gap this run -- see the step logs and job summary above."
+          exit 1
 
       - name: Open or update a tracking issue if this run itself failed (on this repo, matching SEO-template convention)
         if: failure()
