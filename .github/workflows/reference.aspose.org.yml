@@ -296,13 +296,45 @@ jobs:
                --cleanDestinationDir --minify \
                --environment "${{ github.event.inputs.environment }}"
 
+      # The LLM files need the class pages, but the Hugo build above must keep its small sparse checkout:
+      # adding class pages to it makes Hugo panic ("Shift: unknown type *hugolib.pageMetaSource", triggered by
+      # pdf/java/Index.md, backlog ST-329 / ST-331) and grows the root home page from about 0.2 MB to 13 MB
+      # (every page embeds the full-site sidebar). So the generator gets its own English-only checkout.
+      - name: Checkout English reference content for the LLM files (separate tree)
+        uses: actions/checkout@v4
+        with:
+          repository: Aspose/aspose.org
+          token: ${{ secrets.REPO_TOKEN }}
+          path: llms-src
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/generator
+            scripts/pipeline/core
+            data
+            content/reference.aspose.org/en/_index.md
+            content/reference.aspose.org/en/*/_index.md
+            content/reference.aspose.org/en/*/*/_index.md
+            content/reference.aspose.org/en/*/*/*.md
+            content/reference.aspose.org/en/*/*/*/*.md
+          sparse-checkout-cone-mode: false
+
+      # pdf/java: Index.md next to _index.md is the ST-329 defect (parked by the owner): about 666 of its pages have
+      # no HTML page live, and the generator would publish Markdown for them and let Index.md replace the platform
+      # index page. Keep pdf/java as it is today (index page only) until ST-329 is decided.
+      - name: Keep pdf/java class pages out of the LLM files (ST-329 is parked)
+        run: |
+          find llms-src/content/reference.aspose.org/en/pdf/java -maxdepth 1 -type f -name '*.md' ! -name '_index.md' -delete
+
       - name: Generate LLM files
+        working-directory: llms-src
         run: |
           python3 scripts/generator/llms-generator.py \
             --input content \
-            --output llms-output \
+            --output ../llms-output \
             --subdomain reference.aspose.org \
             --mapping scripts/generator/mapping.json \
+            --mode hierarchical \
             --clean-output
 
       - name: Copy LLM files into Hugo output
