@@ -260,6 +260,7 @@ jobs:
             content/reference.aspose.org/*/_index.md
             content/reference.aspose.org/*/*/_index.md
             content/reference.aspose.org/*/*/*/_index.md
+            content/reference.aspose.org/en/*/*/*.md
           sparse-checkout-cone-mode: false
 
       - name: Setup Hugo
@@ -302,6 +303,7 @@ jobs:
             --input content \
             --output llms-output \
             --subdomain reference.aspose.org \
+            --mode hierarchical \
             --mapping scripts/generator/mapping.json \
             --clean-output
 
