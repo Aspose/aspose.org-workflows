@@ -7,6 +7,11 @@ on:
         type: environment
         default: staging
         required: true
+      ref:
+        description: Aspose/aspose.org commit SHA to build (empty = default branch HEAD)
+        type: string
+        default: ''
+        required: false
 
 concurrency:
   group: releases-aspose-org-${{ github.event.inputs.environment }}
@@ -21,6 +26,7 @@ jobs:
         with:
           repository: Aspose/aspose.org
           token: ${{ secrets.REPO_TOKEN }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
 
       - name: Setup Hugo

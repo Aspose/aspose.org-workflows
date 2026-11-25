@@ -31,6 +31,7 @@ python trigger_workflows.py --manifest <path>
 - Reads the manifest (must be in `pending` state)
 - Triggers staged workflows to `staging` environment
 - Triggers production-only workflows directly to `production`
+- Every dispatch is pinned: `--field ref=<manifest content_sha>` (the site workflows check out `Aspose/aspose.org` at that commit). Aborts before triggering anything if `content_sha` is not a full 40-hex SHA
 - Records trigger timestamps and sets manifest state to `staging`
 - Requires `gh` CLI to be authenticated
 
@@ -49,6 +50,7 @@ python check_status.py --manifest <path> --config <path>
 4. `completed` — all workflows succeeded
 5. `failed` — requires manual intervention
 
+- Promotes to production with `--field ref=<manifest content_sha>`: production builds the exact commit that passed staging, never the content repo's moving default branch. Fails closed (manifest -> `failed`, no dispatch) if `content_sha` is not a full SHA. `scan_state.json` is advanced to that `content_sha` (not HEAD), so a commit that lands mid-deploy is picked up by the next scan
 - Queries run status via `gh run list`
 - Enforces configurable timeout per workflow
 - Updates `scan_state.json` on successful completion

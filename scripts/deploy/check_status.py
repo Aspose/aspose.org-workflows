@@ -18,6 +18,7 @@ States:
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -87,18 +88,42 @@ def is_in_propagation_window(trigger_time, grace_minutes=3):
     return elapsed < grace_minutes * 60
 
 
-def trigger_workflow(workflow_filename, environment):
-    """Trigger a workflow via gh CLI. Returns trigger timestamp."""
+_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def is_full_sha(value):
+    """True only for a full 40-hex commit SHA (a branch name or short SHA is not a pin)."""
+    return isinstance(value, str) and _SHA_RE.fullmatch(value) is not None
+
+
+def trigger_workflow(workflow_filename, environment, ref):
+    """
+    Trigger a site workflow via gh CLI, pinned to the content commit `ref`.
+    Returns trigger timestamp, or None on failure.
+
+    `ref` is the manifest's content_sha: the commit that was scanned and built on
+    staging. It is passed as the workflow's `ref` *input* (the site workflows check
+    out Aspose/aspose.org at that commit). It is NOT the gh `--ref` flag, which selects
+    the workflow-file revision in this repo. Without the pin, production would build
+    whatever the content repo's default branch happens to be at trigger time, possibly
+    a commit that never passed staging. Fails closed (no dispatch) if `ref` is not a
+    full SHA.
+    """
+    if not is_full_sha(ref):
+        print(f"    FATAL: Refusing to trigger {workflow_filename} -> {environment}: "
+              f"manifest content_sha is not a full commit SHA ({ref!r})")
+        return None
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     result = subprocess.run(
         ["gh", "workflow", "run", workflow_filename,
-         "--field", f"environment={environment}"],
+         "--field", f"environment={environment}",
+         "--field", f"ref={ref}"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         print(f"    FATAL: Failed to trigger {workflow_filename}: {result.stderr}")
         return None
-    print(f"    Triggered {workflow_filename} -> {environment} at {trigger_time}")
+    print(f"    Triggered {workflow_filename} -> {environment} @ {ref} at {trigger_time}")
     time.sleep(5)
     return trigger_time
 
@@ -216,7 +241,7 @@ def check_staging(manifest, timeout_minutes):
         print("\n  All staging runs passed. Triggering production for staged workflows...")
         trigger_failed = False
         for entry in staged:
-            trigger_time = trigger_workflow(entry["workflow"], "production")
+            trigger_time = trigger_workflow(entry["workflow"], "production", manifest.get("content_sha"))
             if trigger_time is None:
                 entry["production_status"] = "failed"
                 manifest["state"] = "failed"
