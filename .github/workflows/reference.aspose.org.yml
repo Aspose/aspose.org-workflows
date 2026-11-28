@@ -213,10 +213,17 @@ jobs:
         if: github.event.inputs.environment == 'production'
         # --maxDeletes 0 = upload-only; a shard must never delete other shards' files
         run: |
-          hugo deploy --config "$RUNNER_TEMP/job.toml" \
-                      --target "production_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "$RUNNER_TEMP/job.toml" \
+                        --target "production_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
@@ -226,10 +233,17 @@ jobs:
         if: github.event.inputs.environment != 'production'
         # --maxDeletes 0 = upload-only; a shard must never delete other shards' files
         run: |
-          hugo deploy --config "$RUNNER_TEMP/job.toml" \
-                      --target "staging_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "$RUNNER_TEMP/job.toml" \
+                        --target "staging_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
@@ -343,10 +357,17 @@ jobs:
       - name: Deploy shared + LLM files to Ceph (production)
         if: github.event.inputs.environment == 'production'
         run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "production_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "./configs/reference.aspose.org.toml" \
+                        --target "production_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
@@ -355,10 +376,17 @@ jobs:
       - name: Deploy shared + LLM files to Ceph (staging)
         if: github.event.inputs.environment != 'production'
         run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "staging_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "./configs/reference.aspose.org.toml" \
+                        --target "staging_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}
@@ -449,10 +477,17 @@ jobs:
       - name: Deploy sitemaps to Ceph (production)
         if: github.event.inputs.environment == 'production'
         run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "production_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "./configs/reference.aspose.org.toml" \
+                        --target "production_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
@@ -461,10 +496,17 @@ jobs:
       - name: Deploy sitemaps to Ceph (staging)
         if: github.event.inputs.environment != 'production'
         run: |
-          hugo deploy --config "./configs/reference.aspose.org.toml" \
-                      --target "staging_ceph" \
-                      --force \
-                      --maxDeletes 0
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "./configs/reference.aspose.org.toml" \
+                        --target "staging_ceph" \
+                        --force \
+                        --maxDeletes 0 && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_QA_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_QA_SECRET_ACCESS_KEY }}

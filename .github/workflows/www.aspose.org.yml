@@ -40,7 +40,15 @@ jobs:
       # Ceph is the required production target. This step is a hard fail.
       - name: Deploy www.aspose.org to Ceph
         if: github.event.inputs.environment == 'production'
-        run: hugo deploy --config "./configs/www.aspose.org.toml" --maxDeletes 0 --target "production_ceph" --force
+        run: |
+          # A single upload timeout must not fail the deploy: the upload skips unchanged files and
+          # never deletes, so it is safe to repeat.
+          for attempt in 1 2 3; do
+            hugo deploy --config "./configs/www.aspose.org.toml" --maxDeletes 0 --target "production_ceph" --force && break
+            if [ "$attempt" = 3 ]; then echo "::error title=Upload failed::3 attempts failed"; exit 1; fi
+            echo "::warning title=Upload retry::attempt $attempt failed, retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CEPH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CEPH_SECRET_ACCESS_KEY }}
@@ -56,4 +64,4 @@ jobs:
 
       - name: Warn on CDN purge failure
         if: steps.cdn_purge.outcome == 'failure'
-        run: echo "::warning title=CDN purge failed::www.aspose.org CDN cache purge failed — stale content may be served until TTL expires."
+        run: echo "::warning title=CDN purge failed::www.aspose.org CDN cache purge failed â€” stale content may be served until TTL expires."
